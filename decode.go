@@ -16,37 +16,9 @@ func Unmarshal(data []byte, v interface{}) error {
 	return decoder.decode(v)
 }
 
-// UnmarshalPtrError error from expected pointer not found
-type UnmarshalPtrError struct {
-	Type reflect.Type
-}
-
-func (e *UnmarshalPtrError) Error() string {
-	if e.Type == nil {
-		return "packet: Unmarshal(nil)"
-	}
-
-	if e.Type.Kind() != reflect.Ptr {
-		return "packet: Unmarshal(non-pointer " + e.Type.String() + ")"
-	}
-	return "packet: Unmarshal(nil " + e.Type.String() + ")"
-}
-
-// An UnmarshalTypeError describes a packet value that was
-// not appropriate for a value of a specific Go type.
-type UnmarshalTypeError struct {
-	Value  string       // description of packet value - "bool", "array", "number -5"
-	Type   reflect.Type // type of Go value it could not be assigned to
-	Offset int64        // error occurred after reading Offset bytes
-	Struct string       // name of the struct type containing the field
-	Field  string       // name of the field holding the Go value
-}
-
-func (e *UnmarshalTypeError) Error() string {
-	if e.Struct != "" || e.Field != "" {
-		return "packet: cannot unmarshal " + e.Value + " into Go struct field " + e.Struct + "." + e.Field + " of type " + e.Type.String()
-	}
-	return "packet: cannot unmarshal " + e.Value + " into Go value of type " + e.Type.String()
+// UnmarshalBody allow unmarshalling of packet body content, with an interface that provides subsequent types
+type UnmarshalBody interface {
+	UnmarshalBody() interface{}
 }
 
 type context struct {
@@ -93,6 +65,10 @@ func (d *decoder) ptr(v reflect.Value) error {
 		if err := d.array(v); err != nil {
 			return err
 		}
+	case reflect.Struct:
+		if err := d.value(v); err != nil {
+			return err
+		}
 	default:
 		return &UnmarshalTypeError{Value: "ptr", Type: v.Type()}
 	}
@@ -106,18 +82,6 @@ func (d *decoder) getFields(v reflect.Type) []*field {
 		fs = append(fs, newField(f))
 	}
 	return fs
-}
-
-var uint82mask = map[uint64]uint8{
-	8: 0xff,
-	7: 0x7f,
-	6: 0x3f,
-	5: 0x1f,
-	4: 0x0f,
-	3: 0x07,
-	2: 0x03,
-	1: 0x01,
-	0: 0x00,
 }
 
 func (d *decoder) readNext8(length uint64, into *uint8) error {
@@ -142,39 +106,15 @@ func (d *decoder) readNext8(length uint64, into *uint8) error {
 	}
 	// we want to read length X from the top of the left over bits, assuming 0 leading,
 	// shift right bitsLeft - length, and read what's left over
+	mask := makeMask8(d.bitsLeft)
+	*into = mask & *d.bits.(*uint8)
 	shift := d.bitsLeft - length
-
-	if mask, ok := uint82mask[d.bitsLeft]; ok {
-		*into = mask & *d.bits.(*uint8)
-		*into >>= shift
-		d.bitsLeft -= length
-		if d.bitsLeft == 0 {
-			d.bits = nil
-		}
-	} else {
-		return fmt.Errorf("unknown mask size (%d)", length)
+	*into >>= shift
+	d.bitsLeft -= length
+	if d.bitsLeft == 0 {
+		d.bits = nil
 	}
 	return nil
-}
-
-var uint162mask = map[uint64]uint16{
-	16: 0xffff,
-	15: 0x7fff,
-	14: 0x3fff,
-	13: 0x1fff,
-	12: 0x0fff,
-	11: 0x07ff,
-	10: 0x03ff,
-	9:  0x01ff,
-	8:  0x00ff,
-	7:  0x007f,
-	6:  0x003f,
-	5:  0x001f,
-	4:  0x000f,
-	3:  0x0007,
-	2:  0x0003,
-	1:  0x0001,
-	0:  0x0000,
 }
 
 func (d *decoder) readNext16(length uint64, into *uint16) error {
@@ -212,16 +152,13 @@ func (d *decoder) readNext16(length uint64, into *uint16) error {
 	}
 	// we want to read length X from the top of the left over bits, assuming 0 leading,
 	// shift right bitsLeft - length, and read what's left over
+	mask := makeMask16(d.bitsLeft)
+	*into &= mask & *d.bits.(*uint16)
 	shift := d.bitsLeft - length
-	if mask, ok := uint162mask[d.bitsLeft]; ok {
-		*into &= mask & *d.bits.(*uint16)
-		*into >>= shift
-		d.bitsLeft -= length
-		if d.bitsLeft == 0 {
-			d.bits = nil
-		}
-	} else {
-		return fmt.Errorf("unknown mask size (%d)", length)
+	*into >>= shift
+	d.bitsLeft -= length
+	if d.bitsLeft == 0 {
+		d.bits = nil
 	}
 	return nil
 }
@@ -245,7 +182,6 @@ func (d *decoder) setFieldValueFromSize(v reflect.Value, f *field, s *size) erro
 				return err
 			}
 			v.SetUint(uint64(b))
-		case 32 >= s.length:
 		default:
 			return fmt.Errorf("can not handle bit size (%d) read", s.length)
 		}
@@ -285,34 +221,53 @@ func (d *decoder) setFieldValue(v reflect.Value, parent reflect.Value, f *field)
 		if err != nil {
 			return err
 		}
-	case f.rest != nil:
-		// grab the rest of the data, using the ctx.end - d.current for how much
-		if v.Kind() == reflect.Array || v.Kind() == reflect.Slice {
-
-		}
 	case f.when != nil:
 		if !f.when.eval(parent) {
 			return nil
 		}
 		fallthrough
+	case f.restOf == true:
+		// grab the rest of the data, using the ctx.end - d.current for how much
+		if !(v.Kind() == reflect.Array || v.Kind() == reflect.Slice) {
+			return nil
+		}
+		fallthrough
 	default:
 		switch v.Kind() {
+		case reflect.Array, reflect.Slice:
+
+			// a common use cases are:
+			// 	- set bytes -> array
+			//  - dynamic bytes -> slice, base on length
+			// other wise we should probably use an interface, use keyword=body
+			arrayKind := d.arrayKind(v)
+			if arrayKind == reflect.Uint8 {
+				if v.Cap() == 0 {
+					// slice
+					if ctx := d.currentContext(); ctx != nil && ctx.end != 0 {
+						if size := int(ctx.end - d.current); size > 0 {
+							newv := reflect.MakeSlice(v.Type(), v.Len(), size)
+							reflect.Copy(newv, v)
+							v.Set(newv)
+						}
+					}
+				}
+			} else {
+				if err := d.array(v); err != nil {
+					return err
+				}
+			}
 		case reflect.Uint8:
 			v.SetUint(uint64(d.data[d.current]))
 			d.current++
 		case reflect.Uint16:
 			v.SetUint(uint64(binary.BigEndian.Uint16(d.data[d.current : d.current+2])))
 			d.current += 2
-		case reflect.Array, reflect.Slice:
-			arrayKind := d.arrayKind(v)
-			if arrayKind == reflect.Uint8 {
-
-			}
-			if err := d.array(v); err != nil {
-				return err
-			}
+		case reflect.Uint32:
+			v.SetUint(uint64(binary.BigEndian.Uint32(d.data[d.current : d.current+4])))
+			d.current += 4
 		default:
-			fmt.Printf("TYPE: %v|%v\n", f.Type, f.Type.Kind())
+			fmt.Printf("UNHANDLE TYPE: %v|%v\n", f.Type, f.Type.Kind())
 		}
 	}
 	return nil
@@ -346,7 +301,23 @@ func (d *decoder) value(v reflect.Value) error {
 				ctx.end = ctx.start + vf.Uint()
 			}
 		}
-		fmt.Printf("TYPE: %v\n", t)
+		if m := v.MethodByName("UnmarshalBody"); m.IsValid() {
+			if mr := m.Call([]reflect.Value{}); len(mr) == 1 {
+				if !mr[0].IsValid() {
+					panic(fmt.Errorf("invalid return from UnmarshalBody for (%s)", v.Kind()))
+				}
+				if mrt := mr[0].Elem(); mrt.Kind() == reflect.Ptr {
+					if err := d.ptr(mrt); err != nil {
+						return err
+					} else {
+						body := v.FieldByName("Body")
+						if body.IsValid() {
+							body.Set(mrt)
+						}
+					}
+				}
+			}
+		}
 	case reflect.Uint8:
 		v.SetUint(uint64(d.data[d.current]))
 		d.current++
@@ -370,7 +341,6 @@ func (d *decoder) array(v reflect.Value) error {
 	}
 	i := 0
 	for {
-		// grow slice
 		d.growSlice(v, i)
 		if i < v.Len() {
 			// Decode into element.
@@ -383,6 +353,7 @@ func (d *decoder) array(v reflect.Value) error {
 				return err
 			}
 		}
+		i++
 		if d.isDone() {
 			break
 		}

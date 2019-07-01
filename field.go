@@ -27,18 +27,19 @@ type when struct {
 	value     uint64
 }
 
-type rest struct {
+type restFor struct {
 	field string
 }
 type field struct {
 	reflect.StructField
-	size *size
-	when *when
-	rest *rest
+	size    *size
+	when    *when
+	restFor *restFor
+	restOf  bool // indicate when the rest of the data should be consume by body
 }
 
 func newField(_f reflect.StructField) *field {
-	f := &field{_f, nil, nil, nil}
+	f := &field{StructField: _f}
 	f.getTag()
 	return f
 }
@@ -57,10 +58,10 @@ func (w *when) eval(rv reflect.Value) bool {
 func (f *field) getTag() {
 	tags := f.Tag.Get(tagName)
 	for _, tag := range strings.Split(tags, ",") {
-		equalIndex := strings.Index(tag, "=")
-		if equalIndex != -1 {
-			head := tag[0:equalIndex]
-			value := tag[equalIndex+1:]
+		head := tag
+		if equalAt := strings.Index(tag, "="); equalAt != -1 {
+			head = tag[0:equalAt]
+			value := tag[equalAt+1:]
 			switch head {
 			case "size":
 				u, err := strconv.ParseUint(value[0:len(value)-1], 10, 64)
@@ -85,10 +86,15 @@ func (f *field) getTag() {
 					panic(fmt.Errorf("failed to parse: %s", err))
 				}
 				f.when = &when{field: c[0], condition: c[1], value: v}
-			case "rest":
-				f.rest = &rest{field: value}
+			case "rest_at":
+				f.restFor = &restFor{field: value}
 			default:
 				panic(fmt.Errorf("unrecogned header (%s)", head))
+			}
+		} else {
+			switch head {
+			case "rest":
+				f.restOf = true
 			}
 		}
 	}

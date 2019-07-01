@@ -6,6 +6,23 @@ import (
 	"net"
 )
 
+type IpProtocol uint8
+
+const (
+	_TCP IpProtocol = 6
+	_UDP IpProtocol = 17
+)
+
+func (p IpProtocol) String() string {
+	switch p {
+	case _TCP:
+		return "TCP"
+	case _UDP:
+		return "UDP"
+	}
+	return fmt.Sprintf("Protocol(unknown:%d)", int(p))
+}
+
 type Checksum uint16
 
 func (c Checksum) String() string {
@@ -22,12 +39,45 @@ type IP struct {
 	Flags          uint8  `packet:"size=3b"`
 	FragmentOffset uint16 `packet:"size=13b"`
 	TTL            uint8
-	Protocol       uint8
+	Protocol       IpProtocol
 	Checksum       Checksum
-	Source         net.IP `packet:"size=4B"`
-	Dest           net.IP `packet:"size=4B"`
-	Options        []byte `packet:"when=HeaderLength-gt-5"`
-	Body           []byte `packet:rest=Length`
+	Source         net.IP      `packet:"size=4B"`
+	Dest           net.IP      `packet:"size=4B"`
+	Options        []byte      `packet:"when=HeaderLength-gt-5"`
+	Body           interface{} `packet:rest=Length`
+}
+
+type TCP struct {
+	Source        uint8
+	Destination   uint8
+	Sequence      uint32
+	Ack           uint32
+	DataOffset    uint8
+	Reserved      uint8
+	FlagNS        bool
+	FlagCWR       bool
+	FlagECE       bool
+	FlagURG       bool
+	FlagACK       bool
+	FlagPSH       bool
+	FlagRST       bool
+	FlagSYN       bool
+	FlagFIN       bool
+	WindowSize    uint16
+	Checksum      uint16
+	UrgentPointer uint16
+	Options       []byte `packet:when=Offset`
+}
+
+func (ip IP) UnmarshalBody() interface{} {
+	fmt.Printf("IP: %v\n", ip)
+	switch ip.Protocol {
+	case _TCP:
+		return &TCP{}
+	case _UDP:
+	}
+	// panic(fmt.Errorf("unhandle protocol (%s)", ip.Protocol))
+	return nil
 }
 
 type BGP struct {

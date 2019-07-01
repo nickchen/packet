@@ -36,9 +36,9 @@ func TestFixture(t *testing.T) {
 	assert.NoError(t, err, "failed to unmarshal packet")
 
 	assert.True(t, len(ips) == 1, "decoded one packet")
-	expectedIP := fixture.IP{Version: 4, HeaderLength: 5}
+	expectedIP := fixture.IP{Version: 4, HeaderLength: 5, Protocol: 6}
 	if !assert.ObjectsAreEqual(expectedIP, ips[0]) {
-		fmt.Printf("object: (%v) (%v)", expectedIP, ips[0])
+		fmt.Printf("object: *(%v)* *(%v)*", expectedIP, ips[0])
 	}
 	assert.NotNil(t, nil, "failure is expected")
 }
