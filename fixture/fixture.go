@@ -4,6 +4,7 @@ package fixture
 import (
 	"fmt"
 	"net"
+	"strings"
 )
 
 type IpProtocol uint8
@@ -29,21 +30,43 @@ func (c Checksum) String() string {
 	return fmt.Sprintf("0x%x", int(c))
 }
 
+type IPv4Flag uint8
+
+const (
+	MFrag IPv4Flag = 1 << iota
+	DFrag
+	Reserved
+)
+
+func (f IPv4Flag) String() string {
+	s := make([]string, 0)
+	if Reserved&f != 0 {
+		s = append(s, "Reserved")
+	}
+	if DFrag&f != 0 {
+		s = append(s, "DFrag")
+	}
+	if MFrag&f != 0 {
+		s = append(s, "MFrag")
+	}
+	return fmt.Sprintf("%s", strings.Join(s, "|"))
+}
+
 type IP struct {
 	Version        uint8 `packet:"size=4b"`
-	HeaderLength   uint8 `packet:"size=4b"`
+	IHL            uint8 `packet:"size=4b"`
 	DSCP           uint8 `packet:"size=6b"`
 	ECN            uint8 `packet:"size=2b"`
 	Length         uint16
-	Identification uint16
-	Flags          uint8  `packet:"size=3b"`
-	FragmentOffset uint16 `packet:"size=13b"`
+	Id             uint16
+	Flags          IPv4Flag `packet:"size=3b"`
+	FragmentOffset uint16   `packet:"size=13b"`
 	TTL            uint8
 	Protocol       IpProtocol
 	Checksum       Checksum
 	Source         net.IP      `packet:"size=4B"`
 	Dest           net.IP      `packet:"size=4B"`
-	Options        []byte      `packet:"when=HeaderLength-gt-5"`
+	Options        []byte      `packet:"when=IHL-gt-5"`
 	Body           interface{} `packet:rest=Length`
 }
 
