@@ -57,20 +57,29 @@ func (d *decoder) ptr(v reflect.Value) error {
 	if !v.IsValid() {
 		return fmt.Errorf("invalid ptr %+v", v)
 	}
-	k := v.Kind()
-	switch k {
+
+	// XXX just here while debugging
+	if v.Kind() != reflect.Ptr {
+		return &UnmarshalPtrError{reflect.TypeOf(v)}
+	}
+
+	pv := v.Elem()
+	switch pv.Kind() {
 	case reflect.Ptr:
-		return d.ptr(v.Elem())
+		// double pointer
+		if err := d.ptr(pv); err != nil {
+			return err
+		}
 	case reflect.Slice, reflect.Array:
-		if err := d.array(v); err != nil {
+		if err := d.array(pv); err != nil {
 			return err
 		}
 	case reflect.Struct:
-		if err := d.value(v); err != nil {
+		if err := d._struct(pv); err != nil {
 			return err
 		}
 	default:
-		return &UnmarshalTypeError{Value: "ptr", Type: v.Type()}
+		return &UnmarshalTypeError{Value: "ptr", Type: pv.Type()}
 	}
 	return nil
 }
@@ -108,8 +117,7 @@ func (d *decoder) readNext8(length uint64, into *uint8) error {
 	// shift right bitsLeft - length, and read what's left over
 	mask := makeMask8(d.bitsLeft)
 	*into = mask & *d.bits.(*uint8)
-	shift := d.bitsLeft - length
-	*into >>= shift
+	*into >>= (d.bitsLeft - length)
 	d.bitsLeft -= length
 	if d.bitsLeft == 0 {
 		d.bits = nil
@@ -154,8 +162,7 @@ func (d *decoder) readNext16(length uint64, into *uint16) error {
 	// shift right bitsLeft - length, and read what's left over
 	mask := makeMask16(d.bitsLeft)
 	*into &= mask & *d.bits.(*uint16)
-	shift := d.bitsLeft - length
-	*into >>= shift
+	*into >>= (d.bitsLeft - length)
 	d.bitsLeft -= length
 	if d.bitsLeft == 0 {
 		d.bits = nil
@@ -163,8 +170,8 @@ func (d *decoder) readNext16(length uint64, into *uint16) error {
 	return nil
 }
 
-// setFieldValueFromSize set value from non-standard size, as denoted by size spec
-func (d *decoder) setFieldValueFromSize(v reflect.Value, f *field, s *size) error {
+// setStructFieldValueFromSize set value from non-standard size, as denoted by size spec
+func (d *decoder) setStructFieldValueFromSize(v reflect.Value, f *field, s *size) error {
 	switch s.unit {
 	case _bits:
 		switch {
@@ -192,11 +199,6 @@ func (d *decoder) setFieldValueFromSize(v reflect.Value, f *field, s *size) erro
 	return nil
 }
 
-func (d *decoder) arrayKind(v reflect.Value) reflect.Kind {
-	d.growSlice(v, 0)
-	return v.Index(0).Kind()
-}
-
 func (d *decoder) growSlice(v reflect.Value, i int) {
 	if v.Kind() == reflect.Slice {
 		if i >= v.Cap() {
@@ -214,10 +216,10 @@ func (d *decoder) growSlice(v reflect.Value, i int) {
 	}
 }
 
-func (d *decoder) setFieldValue(v reflect.Value, parent reflect.Value, f *field) error {
+func (d *decoder) setStructFieldValue(v reflect.Value, parent reflect.Value, f *field) error {
 	switch {
 	case f.size != nil:
-		err := d.setFieldValueFromSize(v, f, f.size)
+		err := d.setStructFieldValueFromSize(v, f, f.size)
 		if err != nil {
 			return err
 		}
@@ -234,15 +236,14 @@ func (d *decoder) setFieldValue(v reflect.Value, parent reflect.Value, f *field)
 		fallthrough
 	default:
 		switch v.Kind() {
-		case reflect.Array, reflect.Slice:
-
+		case reflect.Slice:
 			// a common use cases are:
 			// 	- set bytes -> array
 			//  - dynamic bytes -> slice, base on length
 			// other wise we should probably use an interface, use keyword=body
-			arrayKind := d.arrayKind(v)
-			if arrayKind == reflect.Uint8 {
+			if v.Type().Elem().Kind() == reflect.Uint8 {
 				if v.Cap() == 0 {
+					d.growSlice(v, 0)
 					// slice
 					if ctx := d.currentContext(); ctx != nil && ctx.end != 0 {
 						if size := int(ctx.end - d.current); size > 0 {
@@ -252,10 +253,11 @@ func (d *decoder) setFieldValue(v reflect.Value, parent reflect.Value, f *field)
 						}
 					}
 				}
-			} else {
-				if err := d.array(v); err != nil {
-					return err
-				}
+			}
+			fallthrough
+		case reflect.Array:
+			if err := d.array(v); err != nil {
+				return err
 			}
 		case reflect.Uint8:
 			v.SetUint(uint64(d.data[d.current]))
@@ -267,7 +269,7 @@ func (d *decoder) setFieldValue(v reflect.Value, parent reflect.Value, f *field)
 			v.SetUint(uint64(binary.BigEndian.Uint32(d.data[d.current : d.current+4])))
 			d.current += 4
 		default:
-			fmt.Printf("UNHANDLE TYPE: %v|%v\n", f.Type, f.Type.Kind())
+			// fmt.Printf("UNHANDLE TYPE: %v|%v\n", f.Type, f.Type.Kind())
 		}
 	}
 	return nil
@@ -280,49 +282,43 @@ func (d *decoder) currentContext() *context {
 	return nil
 }
 
-// unmarshal value
-func (d *decoder) value(v reflect.Value) error {
+// _struct unmarshals the structure by setting the values base on type, special fields:
+//		Length - use to calculate the end for the current structure, required can be use with tag:
+//			     XXX to indicate the data field in which the length is for, as it is often done in packet formats
+// 		Body - interface place holder for the next layer, optional
+func (d *decoder) _struct(v reflect.Value) error {
 	if !v.IsValid() {
 		return fmt.Errorf("invalid value %+v", v)
 	}
-	t := v.Type()
-	switch v.Kind() {
-	case reflect.Struct:
-		fields := d.getFields(v.Type())
-		ctx := &context{start: d.current, end: 0}
-		d.contexts = append(d.contexts, ctx)
-		for i, f := range fields {
-			vf := v.Field(i)
-			err := d.setFieldValue(vf, v, f)
-			if err != nil {
-				return err
-			}
-			if f.Name == "Length" {
-				ctx.end = ctx.start + vf.Uint()
-			}
+	ctx := &context{start: d.current, end: 0}
+	d.contexts = append(d.contexts, ctx)
+	for i, f := range d.getFields(v.Type()) {
+		vf := v.Field(i)
+		err := d.setStructFieldValue(vf, v, f)
+		if err != nil {
+			return err
 		}
-		if m := v.MethodByName("UnmarshalBody"); m.IsValid() {
-			if mr := m.Call([]reflect.Value{}); len(mr) == 1 {
-				if !mr[0].IsValid() {
-					panic(fmt.Errorf("invalid return from UnmarshalBody for (%s)", v.Kind()))
-				}
-				if mrt := mr[0].Elem(); mrt.Kind() == reflect.Ptr {
+		switch f.Name {
+		case "Length":
+			ctx.end = ctx.start + vf.Uint()
+		case "Body":
+			if m := v.MethodByName("UnmarshalBody"); m.IsValid() {
+				// call the function UnmarshalBody, which should return an object to be set for Body as protocol dictates
+				if mr := m.Call([]reflect.Value{}); len(mr) == 1 {
+					// the return from call is an array, we only expect one element
+					if !mr[0].IsValid() {
+						panic(fmt.Errorf("invalid return from UnmarshalBody for (%s)", v.Kind()))
+					}
+					// the return should be an ptr
+					mrt := mr[0].Elem()
 					if err := d.ptr(mrt); err != nil {
 						return err
 					} else {
-						body := v.FieldByName("Body")
-						if body.IsValid() {
-							body.Set(mrt)
-						}
+						vf.Set(mrt)
 					}
 				}
 			}
 		}
-	case reflect.Uint8:
-		v.SetUint(uint64(d.data[d.current]))
-		d.current++
-	default:
-		return &UnmarshalTypeError{Value: "object", Type: t, Offset: int64(d.current)}
 	}
 	return nil
 }
@@ -335,21 +331,43 @@ func (d *decoder) isDone() bool {
 	return int(d.current) >= len(d.data)
 }
 
+// element set value for array/slice element
+func (d *decoder) element(v reflect.Value) error {
+	if !v.IsValid() {
+		return fmt.Errorf("invalid array %+v", v)
+	}
+	switch v.Kind() {
+	case reflect.Struct:
+		if err := d._struct(v); err != nil {
+			return err
+		}
+	case reflect.Uint8:
+		v.SetUint(uint64(d.data[d.current]))
+		d.current++
+	default:
+		return &UnmarshalTypeError{Value: "element", Type: v.Type(), Offset: int64(d.current)}
+	}
+	return nil
+}
+
+// array set array values, grow slices as necessary
 func (d *decoder) array(v reflect.Value) error {
 	if !v.IsValid() {
 		return fmt.Errorf("invalid array %+v", v)
 	}
 	i := 0
 	for {
-		d.growSlice(v, i)
+		if v.Kind() == reflect.Slice {
+			d.growSlice(v, i)
+		}
 		if i < v.Len() {
 			// Decode into element.
-			if err := d.value(v.Index(i)); err != nil {
+			if err := d.element(v.Index(i)); err != nil {
 				return err
 			}
 		} else {
 			// Ran out of fixed array: skip.
-			if err := d.value(reflect.Value{}); err != nil {
+			if err := d.element(reflect.Value{}); err != nil {
 				return err
 			}
 		}

@@ -24,6 +24,7 @@ func (p IpProtocol) String() string {
 	return fmt.Sprintf("Protocol(unknown:%d)", int(p))
 }
 
+// Checksum conversion so it can display in hex
 type Checksum uint16
 
 func (c Checksum) String() string {
@@ -52,7 +53,8 @@ func (f IPv4Flag) String() string {
 	return fmt.Sprintf("%s", strings.Join(s, "|"))
 }
 
-type IP struct {
+// IPv4 packet
+type IPv4 struct {
 	Version        uint8 `packet:"size=4b"`
 	IHL            uint8 `packet:"size=4b"`
 	DSCP           uint8 `packet:"size=6b"`
@@ -70,9 +72,17 @@ type IP struct {
 	Body           interface{} `packet:rest=Length`
 }
 
+type Port uint8
+
+// Well know ports
+const (
+	_BGP Port = 179
+)
+
+// TCP message
 type TCP struct {
-	Source        uint8
-	Destination   uint8
+	Source        Port
+	Dest          Port
 	Sequence      uint32
 	Ack           uint32
 	DataOffset    uint8
@@ -90,10 +100,11 @@ type TCP struct {
 	Checksum      uint16
 	UrgentPointer uint16
 	Options       []byte `packet:when=Offset`
+	Body          interface{}
 }
 
-func (ip IP) UnmarshalBody() interface{} {
-	fmt.Printf("IP: %v\n", ip)
+// UnmarshalBody return the Body struct pointer for conversion
+func (ip IPv4) UnmarshalBody() interface{} {
 	switch ip.Protocol {
 	case _TCP:
 		return &TCP{}
@@ -103,6 +114,16 @@ func (ip IP) UnmarshalBody() interface{} {
 	return nil
 }
 
+// UnmarshalBody return the Body struct pointer for conversion
+func (tcp TCP) UnmarshalBody() interface{} {
+	switch tcp.Dest {
+	case _BGP:
+		return &BGP{}
+	}
+	return nil
+}
+
+// BGP Border Gateway Protocol
 type BGP struct {
 	Marker [16]byte
 	Length uint16
@@ -110,6 +131,7 @@ type BGP struct {
 	Body   interface{} `packet:"type=Open,type=Update,type=Notification,type=Keepalive,source=Type"`
 }
 
+// Open message of BGP
 type Open struct {
 	Version        uint8
 	AS             uint16

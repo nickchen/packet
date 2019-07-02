@@ -50,11 +50,13 @@ func (w *when) eval(rv reflect.Value) bool {
 		switch w.condition {
 		case "gt":
 			return w.value > v
+		default:
+			panic(fmt.Errorf("not handling condition (%s)", w.condition))
 		}
-		fmt.Printf("FIELD: %+v\n", f)
 	}
 	return false
 }
+
 func (f *field) getTag() {
 	tags := f.Tag.Get(tagName)
 	for _, tag := range strings.Split(tags, ",") {
@@ -74,7 +76,7 @@ func (f *field) getTag() {
 				case 'B':
 					f.size = &size{unit: _byte, length: u}
 				default:
-					panic(fmt.Errorf("invalid unit spec (%s)", value))
+					panic(fmt.Errorf("not handling unit spec (%s)", value))
 				}
 			case "when":
 				c := strings.Split(value, "-")
