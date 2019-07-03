@@ -35,6 +35,16 @@ type decoder struct {
 	contexts []*context
 }
 
+type reader struct {
+	data    []byte
+	current uint64
+	offset  uint64
+}
+
+func newReader(data []byte) (*reader, error) {
+	return &reader{data: data}, nil
+}
+
 func newDecoder(data []byte) (*decoder, error) {
 	return &decoder{
 		data:     data,
@@ -54,10 +64,6 @@ func (d *decoder) decode(v interface{}) error {
 }
 
 func (d *decoder) ptr(v reflect.Value) error {
-	if !v.IsValid() {
-		return fmt.Errorf("invalid ptr %+v", v)
-	}
-
 	// XXX just here while debugging
 	if v.Kind() != reflect.Ptr {
 		return &UnmarshalPtrError{reflect.TypeOf(v)}
@@ -94,9 +100,6 @@ func (d *decoder) getFields(v reflect.Type) []*field {
 }
 
 func (d *decoder) readNext8(length uint64, into *uint8) error {
-	if length > 8 {
-		return fmt.Errorf("length exceeded, wanted 8, got %d", length)
-	}
 	switch d.bits.(type) {
 	case *uint8:
 	case nil:
@@ -126,9 +129,6 @@ func (d *decoder) readNext8(length uint64, into *uint8) error {
 }
 
 func (d *decoder) readNext16(length uint64, into *uint16) error {
-	if length > 16 {
-		return fmt.Errorf("length exceeded, wanted 16, got %d", length)
-	}
 	switch d.bits.(type) {
 	case *uint16:
 		// no op
@@ -287,9 +287,6 @@ func (d *decoder) currentContext() *context {
 //			     XXX to indicate the data field in which the length is for, as it is often done in packet formats
 // 		Body - interface place holder for the next layer, optional
 func (d *decoder) _struct(v reflect.Value) error {
-	if !v.IsValid() {
-		return fmt.Errorf("invalid value %+v", v)
-	}
 	ctx := &context{start: d.current, end: 0}
 	d.contexts = append(d.contexts, ctx)
 	for i, f := range d.getFields(v.Type()) {
@@ -333,9 +330,6 @@ func (d *decoder) isDone() bool {
 
 // element set value for array/slice element
 func (d *decoder) element(v reflect.Value) error {
-	if !v.IsValid() {
-		return fmt.Errorf("invalid array %+v", v)
-	}
 	switch v.Kind() {
 	case reflect.Struct:
 		if err := d._struct(v); err != nil {
@@ -352,9 +346,6 @@ func (d *decoder) element(v reflect.Value) error {
 
 // array set array values, grow slices as necessary
 func (d *decoder) array(v reflect.Value) error {
-	if !v.IsValid() {
-		return fmt.Errorf("invalid array %+v", v)
-	}
 	i := 0
 	for {
 		if v.Kind() == reflect.Slice {

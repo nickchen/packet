@@ -135,7 +135,7 @@ type Obj struct {
 	C string
 }
 
-func setStructValue(i *Obj) {
+func setObjValue(i *Obj) {
 	t := reflect.ValueOf(i)
 	if t.Kind() == reflect.Ptr {
 		v := t.Elem()
@@ -154,10 +154,77 @@ func setStructValue(i *Obj) {
 		}
 	}
 }
-func BenchmarkUnmarshalStruct(b *testing.B) {
+
+func TestUnmarshalObject(test *testing.T) {
+	o := &Obj{}
+
+	setObjValue(o)
+	assert.Equal(test, &Obj{10, 10, "10"}, o)
+}
+
+func BenchmarkUnmarshalObj(b *testing.B) {
 
 	o := &Obj{}
 	for n := 0; n < b.N; n++ {
-		setStructValue(o)
+		setObjValue(o)
+	}
+}
+
+type ObjWithBytes struct {
+	A byte
+	B byte
+	C byte
+	D [5]byte
+}
+
+func setObjWithBytesValue(o *ObjWithBytes, data []byte) {
+	t := reflect.ValueOf(o)
+	if t.Kind() == reflect.Ptr {
+		v := t.Elem()
+		if v.Kind() == reflect.Struct {
+			k := 0
+			for i := 0; i < v.NumField(); i++ {
+				f := v.Field(i)
+				switch f.Kind() {
+				case reflect.Uint8:
+					f.SetUint(uint64(data[k]))
+					k++
+				case reflect.Array:
+					if f.Cap() > 0 && f.Index(0).Kind() == reflect.Uint8 {
+						for j := 0; j < f.Cap(); j++ {
+							fv := f.Index(j)
+							fv.SetUint(uint64(data[k]))
+							k++
+						}
+					}
+					k += f.Cap()
+				}
+			}
+		}
+	}
+
+}
+
+var objectWithBytes = []byte{0xfa, 0x16, 0x3e, 0x85, 0x92, 0x77, 0xfa, 0x16}
+
+func TestUnmarshalObjWithBytes(test *testing.T) {
+
+	o := &ObjWithBytes{}
+	setObjWithBytesValue(o, objectWithBytes)
+	assert.Equal(test, &ObjWithBytes{0xfa, 0x16, 0x3e, [5]byte{0x85, 0x92, 0x77, 0xfa, 0x16}}, o)
+}
+
+func BenchmarkUnmarshalObjWithBytes(b *testing.B) {
+
+	o := &ObjWithBytes{}
+	for n := 0; n < b.N; n++ {
+		setObjWithBytesValue(o, []byte{0xfa, 0x16, 0x3e, 0x85, 0x92, 0x77, 0xfa, 0x16})
+	}
+}
+
+func BenchmarkUnmarshalObjWithReader(b *testing.B) {
+	o := &ObjWithBytes{}
+	for n := 0; n < b.N; n++ {
+		setObjWithBytesValue(o, []byte{0xfa, 0x16, 0x3e, 0x85, 0x92, 0x77, 0xfa, 0x16})
 	}
 }
