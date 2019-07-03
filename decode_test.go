@@ -2,6 +2,7 @@ package packet
 
 import (
 	"fmt"
+	"reflect"
 	"testing"
 
 	"github.com/nickchen/packet/fixture"
@@ -102,5 +103,61 @@ func BenchmarkPacket(b *testing.B) {
 	for n := 0; n < b.N; n++ {
 		ip := &fixture.IPv4{}
 		_ = Unmarshal(frame[18:], ip)
+	}
+}
+
+func setSingleValue(i *int) {
+	t := reflect.ValueOf(i)
+	if t.Kind() == reflect.Ptr {
+		v := t.Elem()
+		v.SetInt(10)
+	}
+}
+
+func TestMarkUnmarshalSingle(test *testing.T) {
+	var i int
+
+	setSingleValue(&i)
+	assert.Equal(test, 10, i)
+}
+
+func BenchmarkUnmarshalSingle(b *testing.B) {
+	var i int
+
+	for n := 0; n < b.N; n++ {
+		setSingleValue(&i)
+	}
+}
+
+type Obj struct {
+	A int
+	B uint
+	C string
+}
+
+func setStructValue(i *Obj) {
+	t := reflect.ValueOf(i)
+	if t.Kind() == reflect.Ptr {
+		v := t.Elem()
+		if v.Kind() == reflect.Struct {
+			for i := 0; i < v.NumField(); i++ {
+				f := v.Field(i)
+				switch f.Kind() {
+				case reflect.Int:
+					f.SetInt(10)
+				case reflect.String:
+					f.SetString("10")
+				case reflect.Uint:
+					f.SetUint(10)
+				}
+			}
+		}
+	}
+}
+func BenchmarkUnmarshalStruct(b *testing.B) {
+
+	o := &Obj{}
+	for n := 0; n < b.N; n++ {
+		setStructValue(o)
 	}
 }
