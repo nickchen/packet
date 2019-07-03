@@ -6,6 +6,12 @@ import (
 	"reflect"
 )
 
+var _structFields map[string][]*field
+
+func init() {
+	_structFields = make(map[string][]*field)
+}
+
 // Unmarshal parson the packet data and stores the result in value pointed by v.
 // If v is nil or not a pointer, Unmarshal returns an InvalidUnmarshalError.
 func Unmarshal(data []byte, v interface{}) error {
@@ -91,10 +97,14 @@ func (d *decoder) ptr(v reflect.Value) error {
 }
 
 func (d *decoder) getFields(v reflect.Type) []*field {
-	fs := make([]*field, 0)
-	for i := 0; i < v.NumField(); i++ {
-		f := v.Field(i)
-		fs = append(fs, newField(f))
+	var fs []*field
+	if fs, ok := _structFields[v.Name()]; !ok {
+		fs = make([]*field, 0)
+		for i := 0; i < v.NumField(); i++ {
+			f := v.Field(i)
+			fs = append(fs, newField(f))
+		}
+		_structFields[v.Name()] = fs
 	}
 	return fs
 }

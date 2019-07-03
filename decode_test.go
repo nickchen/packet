@@ -74,12 +74,14 @@ func IpPacketEqual(t *testing.T, ip *fixture.IPv4, gp *layers.IPv4) bool {
 }
 
 /*
+Running tool: /usr/local/go/bin/go test -benchmem -run=^$ github.com/nickchen/packet -bench ^(BenchmarkGoPacket)$
+
 goos: darwin
 goarch: amd64
 pkg: github.com/nickchen/packet
-BenchmarkGoPacket-16    	 2000000	       917 ns/op	    1240 B/op	      12 allocs/op
+BenchmarkGoPacket-8   	 1000000	      1035 ns/op	    1240 B/op	      12 allocs/op
 PASS
-ok  	github.com/nickchen/packet	2.843s
+ok  	github.com/nickchen/packet	1.396s
 Success: Benchmarks passed.
 */
 func BenchmarkGoPacket(b *testing.B) {
@@ -90,16 +92,17 @@ func BenchmarkGoPacket(b *testing.B) {
 }
 
 /*
+Running tool: /usr/local/go/bin/go test -benchmem -run=^$ github.com/nickchen/packet -bench ^(BenchmarkPacket)$
+
 goos: darwin
 goarch: amd64
 pkg: github.com/nickchen/packet
-BenchmarkPacket-16    	  100000	     13864 ns/op	    8462 B/op	     175 allocs/op
+BenchmarkPacket-8   	10000000	       218 ns/op	     184 B/op	       4 allocs/op
 PASS
-ok  	github.com/nickchen/packet	1.547s
+ok  	github.com/nickchen/packet	2.742s
 Success: Benchmarks passed.
 */
 func BenchmarkPacket(b *testing.B) {
-	// run the Fib function b.N times
 	for n := 0; n < b.N; n++ {
 		ip := &fixture.IPv4{}
 		_ = Unmarshal(frame[18:], ip)
