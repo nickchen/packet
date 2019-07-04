@@ -51,6 +51,7 @@ type field struct {
 	when    *when
 	restFor *restFor
 	restOf  bool // indicate when the rest of the data should be consume by body
+	isTotal bool
 }
 
 func newField(_f reflect.StructField) *field {
@@ -74,6 +75,9 @@ func (w *when) eval(rv reflect.Value) bool {
 
 func (f *field) populateTag() {
 	tags := f.Tag.Get(tagName)
+	if tags == "" {
+		return
+	}
 	for _, tag := range strings.Split(tags, ",") {
 		head := tag
 		if equalAt := strings.Index(tag, "="); equalAt != -1 {
@@ -112,6 +116,11 @@ func (f *field) populateTag() {
 			switch head {
 			case "rest":
 				f.restOf = true
+			case "total":
+				// use on Lenght field to indicate the length is for the whole packet, from start to end
+				f.isTotal = true
+			default:
+				panic(fmt.Errorf("unrecogned header (%s) tags (%s)", head, tags))
 			}
 		}
 	}

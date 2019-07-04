@@ -72,7 +72,7 @@ func TestCompare(t *testing.T) {
 	gpIPLayer := gp.Layer(layers.LayerTypeIPv4)
 	assert.NotNil(t, gpIPLayer, "tcp layer decoded")
 	gpIP, _ := gpIPLayer.(*layers.IPv4)
-	assert.True(t, IpPacketEqual(t, ip, gpIP))
+	assert.True(t, IPPacketEqual(t, ip, gpIP))
 
 	assert.NotNil(t, ip.Body, "body should be populated with TCP")
 	tcp, ok := ip.Body.(*fixture.TCP)
@@ -87,7 +87,7 @@ func TestCompare(t *testing.T) {
 	assert.NotNil(t, nil, "failure is expected")
 }
 
-func IpPacketEqual(t *testing.T, ip *fixture.IPv4, gp *layers.IPv4) bool {
+func IPPacketEqual(t *testing.T, ip *fixture.IPv4, gp *layers.IPv4) bool {
 	assert.Equal(t, gp.Version, ip.Version)
 	assert.Equal(t, gp.IHL, ip.IHL)
 	assert.Equal(t, gp.Length, ip.Length)
@@ -123,6 +123,7 @@ goos: darwin
 goarch: amd64
 pkg: github.com/nickchen/packet
 BenchmarkPacket-12    	 1000000	      2168 ns/op	     624 B/op	      12 allocs/op
+BenchmarkPacket-12    	 1000000	      1946 ns/op	     592 B/op	      12 allocs/op
 PASS
 ok  	github.com/nickchen/packet	2.742s
 Success: Benchmarks passed.
@@ -152,8 +153,8 @@ func TestReadPCAP(t *testing.T) {
 
 		tcp, _ := ip.Body.(*fixture.TCP)
 		assert.NotNil(t, tcp, "ip->tcp")
-		fmt.Printf("TCP: %+v\n", tcp)
-		count += 1
+		fmt.Printf("TCP: %s\n", string(tcp.Body.([]byte)))
+		count++
 		if count >= 5 {
 			break
 		}

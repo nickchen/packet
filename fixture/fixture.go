@@ -9,6 +9,7 @@ import (
 	"github.com/nickchen/packet/fixture/bgp"
 )
 
+// Mac pretty print for mac-address
 type Mac [6]byte
 
 func (m Mac) String() string {
@@ -20,7 +21,7 @@ type EtherType uint16
 
 const (
 	_IPv4 EtherType = 0x0800
-	_VLAN EtherType = 0x8100
+	_Vlan EtherType = 0x8100
 	_IPv6 EtherType = 0x86DD
 )
 
@@ -28,7 +29,7 @@ func (t EtherType) String() string {
 	switch t {
 	case _IPv4:
 		return "IPv4"
-	case _VLAN:
+	case _Vlan:
 		return "VLAN"
 	case _IPv6:
 		return "IPv6"
@@ -36,6 +37,7 @@ func (t EtherType) String() string {
 	return fmt.Sprintf("0x%x", int(t))
 }
 
+// EthernetII ethernet frame
 type EthernetII struct {
 	Source Mac
 	Dest   Mac
@@ -43,6 +45,7 @@ type EthernetII struct {
 	Body   interface{}
 }
 
+// VLAN virtual-LAN
 type VLAN struct {
 	Priority uint8 `packet:"length=3b"`
 	DEI      bool
@@ -55,7 +58,7 @@ func bodyStructEtherType(t EtherType) interface{} {
 	switch t {
 	case _IPv4:
 		return &IPv4{}
-	case _VLAN:
+	case _Vlan:
 		return &VLAN{}
 	}
 	return nil
@@ -66,10 +69,12 @@ func (e EthernetII) BodyStruct() interface{} {
 	return bodyStructEtherType(e.Type)
 }
 
+// BodyStruct return the Body struct pointer for conversion
 func (v VLAN) BodyStruct() interface{} {
 	return bodyStructEtherType(v.Type)
 }
 
+// IPProtocol protocol type
 type IPProtocol uint8
 
 const (
@@ -94,6 +99,7 @@ func (c Checksum) String() string {
 	return fmt.Sprintf("0x%x", int(c))
 }
 
+// IPv4Flag IP flags
 type IPv4Flag uint8
 
 const (
@@ -118,23 +124,24 @@ func (f IPv4Flag) String() string {
 
 // IPv4 packet
 type IPv4 struct {
-	Version        uint8 `packet:"length=4b"`
-	IHL            uint8 `packet:"length=4b"`
-	DSCP           uint8 `packet:"length=6b"`
-	ECN            uint8 `packet:"length=2b"`
-	Length         uint16
-	Id             uint16
+	Version        uint8  `packet:"length=4b"`
+	IHL            uint8  `packet:"length=4b"`
+	DSCP           uint8  `packet:"length=6b"`
+	ECN            uint8  `packet:"length=2b"`
+	Length         uint16 `packet:"total"`
+	ID             uint16
 	Flags          IPv4Flag `packet:"length=3b"`
 	FragmentOffset uint16   `packet:"length=13b"`
 	TTL            uint8
 	Protocol       IPProtocol
 	Checksum       Checksum
-	Source         net.IP      `packet:"length=4B"`
-	Dest           net.IP      `packet:"length=4B"`
-	Options        []byte      `packet:"when=IHL-gt-5"`
-	Body           interface{} `packet:"length_from=Length"`
+	Source         net.IP `packet:"length=4B"`
+	Dest           net.IP `packet:"length=4B"`
+	Options        []byte `packet:"when=IHL-gt-5"`
+	Body           interface{}
 }
 
+// Port alias for uint16, so we can use it with constants
 type Port uint16
 
 // Well know ports
@@ -205,7 +212,7 @@ type TCP struct {
 }
 
 // UnmarshalBody return the Body struct pointer for conversion
-func (ip IPv4) UnmarshalBody() interface{} {
+func (ip IPv4) BodyStruct() interface{} {
 	switch ip.Protocol {
 	case _TCP:
 		return &TCP{}

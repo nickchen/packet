@@ -29,7 +29,9 @@ type BodyStruct interface {
 
 type decoder struct {
 	data    []byte
+	start   uint64
 	current uint64
+	end     uint64
 	bits    struct {
 		data   uint64
 		length uint64
@@ -79,7 +81,8 @@ func (d *decoder) _ptr(v reflect.Value) error {
 }
 
 func (d *decoder) getFields(v reflect.Type) []*field {
-	if fs, ok := _structFields[v.Name()]; !ok {
+	fs, ok := _structFields[v.Name()]
+	if !ok {
 		fs = make([]*field, 0)
 		for i := 0; i < v.NumField(); i++ {
 			f := v.Field(i)
@@ -87,9 +90,8 @@ func (d *decoder) getFields(v reflect.Type) []*field {
 		}
 		_structFields[v.Name()] = fs
 		return fs
-	} else {
-		return fs
 	}
+	return fs
 }
 
 func (d *decoder) getBitsByLength(length uint64) (uint64, error) {
@@ -175,14 +177,6 @@ func (d *decoder) setStructFieldValue(v reflect.Value, parent reflect.Value, f *
 			if v.Type().Elem().Kind() == reflect.Uint8 {
 				if v.Cap() == 0 {
 					d.growSlice(v, 0)
-					// slice
-					// if ctx := d.currentContext(); ctx != nil && ctx.end != 0 {
-					// 	if size := int(ctx.end - d.current); size > 0 {
-					// 		newv := reflect.MakeSlice(v.Type(), v.Len(), size)
-					// 		reflect.Copy(newv, v)
-					// 		v.Set(newv)
-					// 	}
-					// }
 				}
 			}
 			fallthrough
@@ -205,29 +199,25 @@ func (d *decoder) setStructFieldValue(v reflect.Value, parent reflect.Value, f *
 		case reflect.Uint32:
 			v.SetUint(uint64(binary.BigEndian.Uint32(d.data[d.current : d.current+4])))
 			d.current += 4
+		case reflect.Interface:
+			if f.Name == "Body" {
+				return nil
+			}
+			fallthrough
 		default:
-			// fmt.Printf("UNHANDLE TYPE: %v|%v\n", f.Type, f.Type.Kind())
+			panic(fmt.Errorf("unhandled type (%s) for field %s.%s", f.Type, parent.Type().Name(), f.Name))
 		}
 	}
 	return nil
 }
-
-// func (d *decoder) currentContext() *context {
-// 	if len(d.contexts) > 0 {
-// 		return d.contexts[len(d.contexts)-1]
-// 	}
-// 	return nil
-// }
 
 // _struct unmarshals the structure by setting the values base on type, special fields:
 //		Length - use to calculate the end for the current structure, required can be use with tag:
 //			     XXX to indicate the data field in which the length is for, as it is often done in packet formats
 // 		Body - interface place holder for the next layer, optional
 func (d *decoder) _struct(v reflect.Value) error {
-	// ctx := &context{start: d.current, end: 0}
-	// d.contexts = append(d.contexts, ctx)
-
 	valueFields := d.getFields(v.Type())
+	d.start = d.current
 	for i := 0; i < len(valueFields); i++ {
 		f := valueFields[i]
 		vf := v.Field(i)
@@ -237,7 +227,9 @@ func (d *decoder) _struct(v reflect.Value) error {
 		}
 		switch f.Name {
 		case "Length":
-			// ctx.end = ctx.start + vf.Uint()
+			if f.isTotal {
+				d.end = d.start + vf.Uint()
+			}
 		case "Body":
 			if m, ok := v.Interface().(BodyStruct); ok {
 				b := m.BodyStruct()
@@ -251,8 +243,10 @@ func (d *decoder) _struct(v reflect.Value) error {
 						return err
 					}
 					vf.Set(bv)
+				} else if d.end != 0 && d.end > d.current {
+					vf.Set(reflect.ValueOf(d.data[d.current:d.end]))
 				} else {
-					fmt.Printf("%s ISNIL\n", v.Type().Name())
+					panic(fmt.Errorf("unhandled body"))
 				}
 			}
 		}
@@ -261,10 +255,6 @@ func (d *decoder) _struct(v reflect.Value) error {
 }
 
 func (d *decoder) isDone() bool {
-	// ctx := d.currentContext()
-	// if ctx != nil && ctx.end != 0 {
-	// 	return d.current >= ctx.end
-	// }
 	return int(d.current) >= len(d.data)
 }
 
