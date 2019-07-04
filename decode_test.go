@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/nickchen/packet/fixture"
+	"github.com/nickchen/packet/fixture/bgp"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/google/gopacket"
@@ -34,6 +35,29 @@ var frame = []byte{
 }
 
 func TestFixture(t *testing.T) {
+	ether := &fixture.EthernetII{}
+
+	err := Unmarshal(frame, ether)
+	assert.NoError(t, err, "failed to decode etherframe")
+	fmt.Printf("ether %+v\n", ether)
+
+	vlan, ok := ether.Body.(*fixture.VLAN)
+	assert.True(t, ok, "failed to find vlan")
+	fmt.Printf("vlan %+v\n", vlan)
+
+	ipv4, ok := vlan.Body.(*fixture.IPv4)
+	assert.True(t, ok, "failed to find ipv4")
+	fmt.Printf("ipv4 %+v\n", ipv4)
+
+	tcp, ok := ipv4.Body.(*fixture.TCP)
+	assert.True(t, ok, "failed to find TCP")
+	fmt.Printf("tcp %+v\n", tcp)
+
+	bgp, ok := tcp.Body.(*bgp.Message)
+	assert.True(t, ok, "failed to find BGP")
+	assert.NotNil(t, bgp, "bgp is null")
+}
+func TestCompare(t *testing.T) {
 	// Decode a packet
 	gp := gopacket.NewPacket(frame, layers.LayerTypeEthernet, gopacket.Default)
 
@@ -64,10 +88,10 @@ func TestFixture(t *testing.T) {
 }
 
 func IpPacketEqual(t *testing.T, ip *fixture.IPv4, gp *layers.IPv4) bool {
-	assert.Equal(t, ip.Version, gp.Version)
-	assert.Equal(t, ip.IHL, gp.IHL)
-	assert.Equal(t, ip.Length, gp.Length)
-	assert.Equal(t, ip.Checksum, gp.Checksum)
+	assert.Equal(t, gp.Version, ip.Version)
+	assert.Equal(t, gp.IHL, ip.IHL)
+	assert.Equal(t, gp.Length, ip.Length)
+	assert.Equal(t, gp.Checksum, uint16(ip.Checksum))
 	fmt.Printf("object: *(%v)* *(%v)*\n", ip, gp)
 	return true
 }
@@ -79,6 +103,7 @@ goos: darwin
 goarch: amd64
 pkg: github.com/nickchen/packet
 BenchmarkGoPacket-8   	 1000000	      1035 ns/op	    1240 B/op	      12 allocs/op
+BenchmarkGoPacket-12    	 2000000	       877 ns/op	    1240 B/op	      12 allocs/op
 PASS
 ok  	github.com/nickchen/packet	1.396s
 Success: Benchmarks passed.
@@ -91,19 +116,21 @@ func BenchmarkGoPacket(b *testing.B) {
 }
 
 /*
+for Etherframe -> VLAN -> IP -> TCP -> BGP -> Open
 Running tool: /usr/local/go/bin/go test -benchmem -run=^$ github.com/nickchen/packet -bench ^(BenchmarkPacket)$
 
 goos: darwin
 goarch: amd64
 pkg: github.com/nickchen/packet
-BenchmarkPacket-8   	10000000	       218 ns/op	     184 B/op	       4 allocs/op
+BenchmarkPacket-12    	 1000000	      2168 ns/op	     624 B/op	      12 allocs/op
 PASS
 ok  	github.com/nickchen/packet	2.742s
 Success: Benchmarks passed.
 */
 func BenchmarkPacket(b *testing.B) {
+	b.ReportAllocs()
 	for n := 0; n < b.N; n++ {
-		ip := &fixture.IPv4{}
-		_ = Unmarshal(frame[18:], ip)
+		ether := &fixture.EthernetII{}
+		_ = Unmarshal(frame, ether)
 	}
 }

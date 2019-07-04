@@ -16,9 +16,24 @@ const (
 	_byte
 )
 
-type size struct {
+func (u unit) String() string {
+	switch u {
+	case _bits:
+		return "b"
+	case _byte:
+		return "B"
+	}
+	return "uncognized unit(" + string(int(u)) + ")"
+}
+
+type length struct {
 	unit   unit
 	length uint64
+}
+
+func (l *length) String() string {
+	return fmt.Sprintf("%d%s", l.length, l.unit)
+	//return string(l.length) + l.unit.String()
 }
 
 type when struct {
@@ -32,7 +47,7 @@ type restFor struct {
 }
 type field struct {
 	reflect.StructField
-	size    *size
+	length  *length
 	when    *when
 	restFor *restFor
 	restOf  bool // indicate when the rest of the data should be consume by body
@@ -40,7 +55,7 @@ type field struct {
 
 func newField(_f reflect.StructField) *field {
 	f := &field{StructField: _f}
-	f.getTag()
+	f.populateTag()
 	return f
 }
 
@@ -57,7 +72,7 @@ func (w *when) eval(rv reflect.Value) bool {
 	return false
 }
 
-func (f *field) getTag() {
+func (f *field) populateTag() {
 	tags := f.Tag.Get(tagName)
 	for _, tag := range strings.Split(tags, ",") {
 		head := tag
@@ -65,16 +80,16 @@ func (f *field) getTag() {
 			head = tag[0:equalAt]
 			value := tag[equalAt+1:]
 			switch head {
-			case "size":
+			case "length":
 				u, err := strconv.ParseUint(value[0:len(value)-1], 10, 64)
 				if err != nil {
-					panic(fmt.Errorf("failed to parse size (%s)", value))
+					panic(fmt.Errorf("failed to parse length (%s)", value))
 				}
 				switch value[len(value)-1] {
 				case 'b':
-					f.size = &size{unit: _bits, length: u}
+					f.length = &length{unit: _bits, length: u}
 				case 'B':
-					f.size = &size{unit: _byte, length: u}
+					f.length = &length{unit: _byte, length: u}
 				default:
 					panic(fmt.Errorf("not handling unit spec (%s)", value))
 				}

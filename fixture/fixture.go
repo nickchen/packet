@@ -5,16 +5,78 @@ import (
 	"fmt"
 	"net"
 	"strings"
+
+	"github.com/nickchen/packet/fixture/bgp"
 )
 
-type IpProtocol uint8
+type Mac [6]byte
+
+func (m Mac) String() string {
+	return fmt.Sprintf("%x", m[:])
+}
+
+type EtherType uint16
 
 const (
-	_TCP IpProtocol = 6
-	_UDP IpProtocol = 17
+	_IPv4 EtherType = 0x0800
+	_VLAN           = 0x8100
+	_IPv6           = 0x86DD
 )
 
-func (p IpProtocol) String() string {
+func (t EtherType) String() string {
+	switch t {
+	case _IPv4:
+		return "IPv4"
+	case _VLAN:
+		return "VLAN"
+	case _IPv6:
+		return "IPv6"
+	}
+	return fmt.Sprintf("0x%x", int(t))
+}
+
+type EthernetII struct {
+	Source Mac
+	Dest   Mac
+	Type   EtherType
+	Body   interface{}
+}
+
+type VLAN struct {
+	Priority uint8 `packet:"length=3b"`
+	DEI      bool
+	ID       uint16 `packet:"length=12b"`
+	Type     EtherType
+	Body     interface{}
+}
+
+func unmarshalBodyFromEtherType(t EtherType) interface{} {
+	switch t {
+	case _IPv4:
+		return &IPv4{}
+	case _VLAN:
+		return &VLAN{}
+	}
+	return nil
+}
+
+// UnmarshalBody return the Body struct pointer for conversion
+func (e EthernetII) UnmarshalBody() interface{} {
+	return unmarshalBodyFromEtherType(e.Type)
+}
+
+func (v VLAN) UnmarshalBody() interface{} {
+	return unmarshalBodyFromEtherType(v.Type)
+}
+
+type IPProtocol uint8
+
+const (
+	_TCP IPProtocol = 6
+	_UDP IPProtocol = 17
+)
+
+func (p IPProtocol) String() string {
 	switch p {
 	case _TCP:
 		return "TCP"
@@ -50,29 +112,29 @@ func (f IPv4Flag) String() string {
 	if MFrag&f != 0 {
 		s = append(s, "MFrag")
 	}
-	return fmt.Sprintf("%s", strings.Join(s, "|"))
+	return strings.Join(s, "|")
 }
 
 // IPv4 packet
 type IPv4 struct {
-	Version        uint8 `packet:"size=4b"`
-	IHL            uint8 `packet:"size=4b"`
-	DSCP           uint8 `packet:"size=6b"`
-	ECN            uint8 `packet:"size=2b"`
+	Version        uint8 `packet:"length=4b"`
+	IHL            uint8 `packet:"length=4b"`
+	DSCP           uint8 `packet:"length=6b"`
+	ECN            uint8 `packet:"length=2b"`
 	Length         uint16
 	Id             uint16
-	Flags          IPv4Flag `packet:"size=3b"`
-	FragmentOffset uint16   `packet:"size=13b"`
+	Flags          IPv4Flag `packet:"length=3b"`
+	FragmentOffset uint16   `packet:"length=13b"`
 	TTL            uint8
-	Protocol       IpProtocol
+	Protocol       IPProtocol
 	Checksum       Checksum
-	Source         net.IP      `packet:"size=4B"`
-	Dest           net.IP      `packet:"size=4B"`
+	Source         net.IP      `packet:"length=4B"`
+	Dest           net.IP      `packet:"length=4B"`
 	Options        []byte      `packet:"when=IHL-gt-5"`
 	Body           interface{} `packet:rest=Length`
 }
 
-type Port uint8
+type Port uint16
 
 // Well know ports
 const (
@@ -99,7 +161,7 @@ type TCP struct {
 	WindowSize    uint16
 	Checksum      uint16
 	UrgentPointer uint16
-	Options       []byte `packet:when=Offset`
+	Options       []byte `packet:"when=DataOffset-gt-5"`
 	Body          interface{}
 }
 
@@ -118,31 +180,7 @@ func (ip IPv4) UnmarshalBody() interface{} {
 func (tcp TCP) UnmarshalBody() interface{} {
 	switch tcp.Dest {
 	case _BGP:
-		return &BGP{}
+		return &bgp.Message{}
 	}
 	return nil
-}
-
-// BGP Border Gateway Protocol
-type BGP struct {
-	Marker [16]byte
-	Length uint16
-	Type   uint8
-	Body   interface{} `packet:"type=Open,type=Update,type=Notification,type=Keepalive,source=Type"`
-}
-
-// Open message of BGP
-type Open struct {
-	Version        uint8
-	AS             uint16
-	Holdtime       uint16
-	RouterID       uint32
-	OptionalLength uint8
-	Optional       []OptionalParameter
-}
-
-type OptionalParameter struct {
-	Type   uint8
-	Length uint8 `packet:"size_for=Value"`
-	Value  interface{}
 }

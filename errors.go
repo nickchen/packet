@@ -36,3 +36,15 @@ func (e *UnmarshalTypeError) Error() string {
 	}
 	return "packet: cannot unmarshal " + e.Value + " into Go value of type " + e.Type.String()
 }
+
+type UnmarshalBitfieldOverflowError struct {
+	Struct string
+	Field  *field
+}
+
+func (e *UnmarshalBitfieldOverflowError) Error() string {
+	if e.Struct != "" || e.Field != nil {
+		return "packet: cannot unmarshal " + e.Field.Name + " into Go struct field " + e.Struct + ", size over 64bits"
+	}
+	return "packet: cannot unmarshal into Go value of type " + e.Struct
+}
