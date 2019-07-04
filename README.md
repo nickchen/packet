@@ -12,5 +12,5 @@ Following struct fields are have special meanings:
 * Length indicate the total length of the current struct, can be use to calculate the Body as []byte when 
 * Body should be a `interface{}` field unless a specific type is know, then it should be a pointer to the type in question, will test to see if the struct satisfy `BodyStruct` interface by calling `BodyStruct()`
 
-see [fixture](./fixture/fixture.go) for example.
+see [fixture](./fixture/fixture.go), and [unittest](./decode_test.go) for example.
 
