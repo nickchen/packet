@@ -108,7 +108,7 @@ func setObjWithBytesValue(o interface{}, data []byte) {
 					newf := reflect.MakeSlice(f.Type(), f.Len(), newCap)
 					reflect.Copy(newf, f)
 					f.Set(newf)
-					f.SetBytes(data[k:len(data)])
+					f.SetBytes(data[k:])
 				}
 			}
 		}

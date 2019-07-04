@@ -15,12 +15,13 @@ func (m Mac) String() string {
 	return fmt.Sprintf("%x", m[:])
 }
 
+// EtherType custom function for String()
 type EtherType uint16
 
 const (
 	_IPv4 EtherType = 0x0800
-	_VLAN           = 0x8100
-	_IPv6           = 0x86DD
+	_VLAN EtherType = 0x8100
+	_IPv6 EtherType = 0x86DD
 )
 
 func (t EtherType) String() string {
@@ -50,7 +51,7 @@ type VLAN struct {
 	Body     interface{}
 }
 
-func unmarshalBodyFromEtherType(t EtherType) interface{} {
+func bodyStructEtherType(t EtherType) interface{} {
 	switch t {
 	case _IPv4:
 		return &IPv4{}
@@ -60,13 +61,13 @@ func unmarshalBodyFromEtherType(t EtherType) interface{} {
 	return nil
 }
 
-// UnmarshalBody return the Body struct pointer for conversion
-func (e EthernetII) UnmarshalBody() interface{} {
-	return unmarshalBodyFromEtherType(e.Type)
+// BodyStruct return the Body struct pointer for conversion
+func (e EthernetII) BodyStruct() interface{} {
+	return bodyStructEtherType(e.Type)
 }
 
-func (v VLAN) UnmarshalBody() interface{} {
-	return unmarshalBodyFromEtherType(v.Type)
+func (v VLAN) BodyStruct() interface{} {
+	return bodyStructEtherType(v.Type)
 }
 
 type IPProtocol uint8
@@ -131,7 +132,7 @@ type IPv4 struct {
 	Source         net.IP      `packet:"length=4B"`
 	Dest           net.IP      `packet:"length=4B"`
 	Options        []byte      `packet:"when=IHL-gt-5"`
-	Body           interface{} `packet:rest=Length`
+	Body           interface{} `packet:"length_from=Length"`
 }
 
 type Port uint16
@@ -214,8 +215,8 @@ func (ip IPv4) UnmarshalBody() interface{} {
 	return nil
 }
 
-// UnmarshalBody return the Body struct pointer for conversion
-func (tcp TCP) UnmarshalBody() interface{} {
+// BodyStruct return the Body struct pointer for conversion
+func (tcp TCP) BodyStruct() interface{} {
 	switch tcp.Dest {
 	case _BGP:
 		return &bgp.Message{}

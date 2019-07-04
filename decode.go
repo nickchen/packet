@@ -6,10 +6,6 @@ import (
 	"reflect"
 )
 
-const (
-	// maxContextStack number of preallocated context for keeping track of range information
-	maxContextStack = 128
-)
 var _structFields map[string][]*field
 
 func init() {
@@ -26,19 +22,14 @@ func Unmarshal(data []byte, v interface{}) error {
 	return d.decode(v)
 }
 
-// UnmarshalBody allow unmarshalling of packet body content, with an interface that provides subsequent types
-type UnmarshalBody interface {
-	UnmarshalBody() interface{}
+// BodyStruct allow unmarshalling of packet body content, with an interface that provides subsequent type from current value
+type BodyStruct interface {
+	BodyStruct() interface{}
 }
 
-type context struct {
-	start uint64
-	end   uint64
-}
 type decoder struct {
 	data    []byte
 	current uint64
-	offset  uint64
 	bits    struct {
 		data   uint64
 		length uint64
@@ -168,7 +159,7 @@ func (d *decoder) setStructFieldValue(v reflect.Value, parent reflect.Value, f *
 			return nil
 		}
 		fallthrough
-	case f.restOf == true:
+	case f.restOf:
 		// grab the rest of the data, using the ctx.end - d.current for how much
 		if !(v.Kind() == reflect.Array || v.Kind() == reflect.Slice) {
 			return nil
@@ -248,18 +239,18 @@ func (d *decoder) _struct(v reflect.Value) error {
 		case "Length":
 			// ctx.end = ctx.start + vf.Uint()
 		case "Body":
-			if m, ok := v.Interface().(UnmarshalBody); ok {
-				b := m.UnmarshalBody()
+			if m, ok := v.Interface().(BodyStruct); ok {
+				b := m.BodyStruct()
 				if b != nil {
 					bv := reflect.ValueOf(b)
 					if bv.Kind() != reflect.Ptr {
-						panic(fmt.Errorf("invalid return from %s.UnmarshalBody for (%s)", v.Type().Name(), bv.Kind()))
+						panic(fmt.Errorf("invalid return from %s.BodyStruct for (%s)", v.Type().Name(), bv.Kind()))
 					}
-					if err := d._ptr(bv); err != nil {
+					err := d._ptr(bv)
+					if err != nil {
 						return err
-					} else {
-						vf.Set(bv)
-					}				
+					}
+					vf.Set(bv)
 				} else {
 					fmt.Printf("%s ISNIL\n", v.Type().Name())
 				}
