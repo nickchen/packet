@@ -134,3 +134,29 @@ func BenchmarkPacket(b *testing.B) {
 		_ = Unmarshal(frame, ether)
 	}
 }
+
+func TestReadPCAP(t *testing.T) {
+	pcap, err := fixture.OpenPCAP("fixture/NTLM-wenchao.pcap")
+	assert.NoError(t, err, "failed to open pcap")
+	count := 0
+	for p := range pcap.PacketData() {
+		fmt.Printf("=====\n")
+		ether := &fixture.EthernetII{}
+
+		err = Unmarshal(p, ether)
+		assert.NoError(t, err, "failed to decode")
+		fmt.Printf("Packet: %+v\n", ether)
+		ip, _ := ether.Body.(*fixture.IPv4)
+		assert.NotNil(t, ip, "ether->ip")
+		fmt.Printf("IP: %+v\n", ip)
+
+		tcp, _ := ip.Body.(*fixture.TCP)
+		assert.NotNil(t, tcp, "ip->tcp")
+		fmt.Printf("TCP: %+v\n", tcp)
+		count += 1
+		if count >= 5 {
+			break
+		}
+	}
+	assert.NotNil(t, nil, "failure is expected")
+}

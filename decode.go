@@ -260,6 +260,8 @@ func (d *decoder) _struct(v reflect.Value) error {
 					} else {
 						vf.Set(bv)
 					}				
+				} else {
+					fmt.Printf("%s ISNIL\n", v.Type().Name())
 				}
 			}
 		}

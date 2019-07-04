@@ -141,25 +141,63 @@ const (
 	_BGP Port = 179
 )
 
+// TCPFlag is 9 bits
+type TCPFlag uint16
+
+const (
+	FIN TCPFlag = 1 << iota
+	SYN
+	RST
+	PSH
+	ACK
+	URG
+	ECE
+	CWR
+	NS
+)
+
+func (f TCPFlag) String() string {
+	s := make([]string, 0)
+	if f&NS != 0 {
+		s = append(s, "NS")
+	}
+	if f&CWR != 0 {
+		s = append(s, "CWR")
+	}
+	if f&ECE != 0 {
+		s = append(s, "ECE")
+	}
+	if f&URG != 0 {
+		s = append(s, "URG")
+	}
+	if f&ACK != 0 {
+		s = append(s, "ACK")
+	}
+	if f&PSH != 0 {
+		s = append(s, "PSH")
+	}
+	if f&RST != 0 {
+		s = append(s, "RST")
+	}
+	if f&SYN != 0 {
+		s = append(s, "SYN")
+	}
+	if f&FIN != 0 {
+		s = append(s, "FIN")
+	}
+	return strings.Join(s, "|")
+}
+
 // TCP message
 type TCP struct {
 	Source        Port
 	Dest          Port
 	Sequence      uint32
 	Ack           uint32
-	DataOffset    uint8
-	Reserved      uint8
-	FlagNS        bool
-	FlagCWR       bool
-	FlagECE       bool
-	FlagURG       bool
-	FlagACK       bool
-	FlagPSH       bool
-	FlagRST       bool
-	FlagSYN       bool
-	FlagFIN       bool
+	DataOffset    uint8   `packet:"length=4b"`
+	Flags         TCPFlag `packet:"length=12b"`
 	WindowSize    uint16
-	Checksum      uint16
+	Checksum      Checksum
 	UrgentPointer uint16
 	Options       []byte `packet:"when=DataOffset-gt-5"`
 	Body          interface{}
