@@ -124,11 +124,11 @@ func (f IPv4Flag) String() string {
 
 // IPv4 packet
 type IPv4 struct {
-	Version        uint8  `packet:"length=4b"`
-	IHL            uint8  `packet:"length=4b"`
-	DSCP           uint8  `packet:"length=6b"`
-	ECN            uint8  `packet:"length=2b"`
-	Length         uint16 `packet:"total"`
+	Version        uint8 `packet:"length=4b"`
+	IHL            uint8 `packet:"length=4b"`
+	DSCP           uint8 `packet:"length=6b"`
+	ECN            uint8 `packet:"length=2b"`
+	Length         uint16
 	ID             uint16
 	Flags          IPv4Flag `packet:"length=3b"`
 	FragmentOffset uint16   `packet:"length=13b"`

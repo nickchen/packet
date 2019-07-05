@@ -4,12 +4,28 @@ import (
 	"encoding/binary"
 	"fmt"
 	"reflect"
+	"sync"
 )
 
+// context holds all the bytes for the current Array/Slice/Struct
+// Note: parent are responsible for allocating the context before
+// the _struct/_array call,
+type context struct {
+	current uint64
+	data    []byte
+}
+
 var _structFields map[string][]*field
+var _contextPool sync.Pool
 
 func init() {
 	_structFields = make(map[string][]*field)
+	_contextPool = sync.Pool{
+		New: func() interface{} {
+			// allocate and return a new context
+			return new(context)
+		},
+	}
 }
 
 // Unmarshal parson the packet data and stores the result in value pointed by v.
@@ -39,7 +55,7 @@ type decoder struct {
 }
 
 func newDecoder(data []byte) (*decoder, error) {
-	return &decoder{data: data}, nil
+	return &decoder{data: data, end: uint64(len(data))}, nil
 }
 
 func (d *decoder) decode(v interface{}) error {
@@ -108,14 +124,14 @@ func (d *decoder) getBitsByLength(length uint64) (uint64, error) {
 	return value, nil
 }
 
-// setStructFieldValueFromSize set value from non-standard size, as denoted by size spec
-func (d *decoder) setStructFieldValueFromSize(v reflect.Value, f *field, l *length) error {
-	switch l.unit {
+// setStructFieldValueFromLength set value from non-standard size, as denoted by size spec
+func (d *decoder) setStructFieldValueFromLength(v reflect.Value, parent reflect.Value, f *field) error {
+	switch f.length.unit {
 	case _bits:
-		if (l.length > d.bits.length) && (l.length+d.bits.length) > 64 {
+		if (f.length.length > d.bits.length) && (f.length.length+d.bits.length) > 64 {
 			return &UnmarshalBitfieldOverflowError{Field: f}
 		}
-		value, err := d.getBitsByLength(l.length)
+		value, err := d.getBitsByLength(f.length.length)
 		if err != nil {
 			return err
 		}
@@ -126,33 +142,47 @@ func (d *decoder) setStructFieldValueFromSize(v reflect.Value, f *field, l *leng
 			v.SetBool((0xfffffffffffffff1 & value) == 0x1)
 		}
 	case _byte:
-		v.SetBytes(d.data[d.current : d.current+l.length])
-		d.current += l.length
+		if err := d.rangeCheck(parent, f, f.length.length); err != nil {
+			return err
+		}
+		v.SetBytes(d.data[d.current : d.current+f.length.length])
+		d.current += f.length.length
 	}
 	return nil
 }
 
 func (d *decoder) growSlice(v reflect.Value, i int) {
-	if v.Kind() == reflect.Slice {
-		if i >= v.Cap() {
-			newcap := v.Cap() + v.Cap()/2
-			if newcap < 4 {
-				newcap = 4
-			}
-			newv := reflect.MakeSlice(v.Type(), v.Len(), newcap)
-			reflect.Copy(newv, v)
-			v.Set(newv)
+	if i >= v.Cap() {
+		newcap := v.Cap() + v.Cap()/2
+		if newcap < 4 {
+			newcap = 4
 		}
-		if i >= v.Len() {
-			v.SetLen(i + 1)
-		}
+		newv := reflect.MakeSlice(v.Type(), v.Len(), newcap)
+		reflect.Copy(newv, v)
+		v.Set(newv)
+	}
+	if i >= v.Len() {
+		v.SetLen(i + 1)
 	}
 }
 
+func (d *decoder) getStructUnint(parent reflect.Value, fieldname string) uint64 {
+	return parent.FieldByName(fieldname).Uint()
+}
+
+func (d *decoder) rangeCheck(parent reflect.Value, f *field, length uint64) error {
+	if (d.current + length) >= d.end {
+		return &UnmarshalUnexpectedEnd{Struct: parent.Type().Name(), Field: f.Name, Offset: int64(d.current), End: int64(d.end)}
+	}
+	return nil
+}
+
 func (d *decoder) setStructFieldValue(v reflect.Value, parent reflect.Value, f *field) error {
+	var length uint64
 	switch {
 	case f.length != nil:
-		err := d.setStructFieldValueFromSize(v, f, f.length)
+		// have length specification
+		err := d.setStructFieldValueFromLength(v, parent, f)
 		if err != nil {
 			return err
 		}
@@ -161,26 +191,20 @@ func (d *decoder) setStructFieldValue(v reflect.Value, parent reflect.Value, f *
 			return nil
 		}
 		fallthrough
-	case f.restOf:
-		// grab the rest of the data, using the ctx.end - d.current for how much
-		if !(v.Kind() == reflect.Array || v.Kind() == reflect.Slice) {
+	case f.lengthfrom != "":
+		// have length specification from another field in the same struct
+		length = d.getStructUnint(parent, f.lengthfrom)
+		if length == 0 {
 			return nil
 		}
-		fallthrough
 	default:
-		switch v.Kind() {
-		case reflect.Slice:
+		k := v.Kind()
+		switch k {
+		case reflect.Slice, reflect.Array:
 			// a common use cases are:
 			// 	- set bytes -> array
 			//  - dynamic bytes -> slice, base on length
 			// other wise we should probably use an interface, use keyword=body
-			if v.Type().Elem().Kind() == reflect.Uint8 {
-				if v.Cap() == 0 {
-					d.growSlice(v, 0)
-				}
-			}
-			fallthrough
-		case reflect.Array:
 			if err := d._array(v); err != nil {
 				return err
 			}
@@ -190,15 +214,20 @@ func (d *decoder) setStructFieldValue(v reflect.Value, parent reflect.Value, f *
 				return err
 			}
 			v.SetBool((0xfffffffffffffff1 & value) == 0x1)
-		case reflect.Uint8:
-			v.SetUint(uint64(d.data[d.current]))
-			d.current++
-		case reflect.Uint16:
-			v.SetUint(uint64(binary.BigEndian.Uint16(d.data[d.current : d.current+2])))
-			d.current += 2
-		case reflect.Uint32:
-			v.SetUint(uint64(binary.BigEndian.Uint32(d.data[d.current : d.current+4])))
-			d.current += 4
+		case reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+			length = map[reflect.Kind]uint64{reflect.Uint8: 1, reflect.Uint16: 2, reflect.Uint32: 4, reflect.Uint64: 8}[k]
+			if err := d.rangeCheck(parent, f, length); err != nil {
+				return err
+			}
+			var value uint64
+			switch k {
+			case reflect.Uint8:
+				value = uint64(d.data[d.current])
+			case reflect.Uint16, reflect.Uint32, reflect.Uint64:
+				value = uint64(binary.BigEndian.Uint16(d.data[d.current : d.current+length]))
+			}
+			v.SetUint(value)
+			d.current += length
 		case reflect.Interface:
 			if f.Name == "Body" {
 				return nil
@@ -238,16 +267,19 @@ func (d *decoder) _struct(v reflect.Value) error {
 					if bv.Kind() != reflect.Ptr {
 						panic(fmt.Errorf("invalid return from %s.BodyStruct for (%s)", v.Type().Name(), bv.Kind()))
 					}
+					// set body before the decoding process, so it should be returned along with error if any
+					vf.Set(bv)
 					err := d._ptr(bv)
 					if err != nil {
 						return err
 					}
-					vf.Set(bv)
 				} else if d.end != 0 && d.end > d.current {
 					vf.Set(reflect.ValueOf(d.data[d.current:d.end]))
 				} else {
 					panic(fmt.Errorf("unhandled body"))
 				}
+			} else {
+				panic(fmt.Errorf("%s does not implment the BodyStruct interface", v.Type().Name()))
 			}
 		}
 	}
@@ -287,12 +319,10 @@ func (d *decoder) _array(v reflect.Value) error {
 				return err
 			}
 		} else {
+			// reach capacity
 			break
 		}
 		i++
-		if d.isDone() {
-			break
-		}
 	}
 	return nil
 }

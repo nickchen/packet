@@ -49,3 +49,15 @@ func (e *UnmarshalBitfieldOverflowError) Error() string {
 	}
 	return "packet: cannot unmarshal into Go value of type " + e.Struct
 }
+
+// UnmarshalUnexpectedEnd unexpected end of data
+type UnmarshalUnexpectedEnd struct {
+	Struct string
+	Field  string
+	Offset int64
+	End    int64
+}
+
+func (e *UnmarshalUnexpectedEnd) Error() string {
+	return "packet: premature end of data for " + e.Struct + "." + e.Field
+}

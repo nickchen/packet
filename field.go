@@ -47,11 +47,11 @@ type restFor struct {
 }
 type field struct {
 	reflect.StructField
-	length  *length
-	when    *when
-	restFor *restFor
-	restOf  bool // indicate when the rest of the data should be consume by body
-	isTotal bool
+	length     *length
+	when       *when
+	lengthfrom string
+	restOf     bool // indicate when the rest of the data should be consume by body
+	isTotal    bool
 }
 
 func newField(_f reflect.StructField) *field {
@@ -107,18 +107,13 @@ func (f *field) populateTag() {
 					panic(fmt.Errorf("failed to parse: %s", err))
 				}
 				f.when = &when{field: c[0], condition: c[1], value: v}
-			case "rest_at":
-				f.restFor = &restFor{field: value}
+			case "lengthfrom":
+				f.lengthfrom = value
 			default:
 				panic(fmt.Errorf("unrecogned header (%s)", head))
 			}
 		} else {
 			switch head {
-			case "rest":
-				f.restOf = true
-			case "total":
-				// use on Lenght field to indicate the length is for the whole packet, from start to end
-				f.isTotal = true
 			default:
 				panic(fmt.Errorf("unrecogned header (%s) tags (%s)", head, tags))
 			}
