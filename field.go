@@ -50,8 +50,9 @@ type field struct {
 	length     *length
 	when       *when
 	lengthfrom string
-	restOf     bool // indicate when the rest of the data should be consume by body
-	isTotal    bool
+	f struct {
+		lengthfor bool
+	}
 }
 
 func newField(_f reflect.StructField) *field {
@@ -114,6 +115,8 @@ func (f *field) populateTag() {
 			}
 		} else {
 			switch head {
+			case "lengthfor":
+				f.f.lengthfor = true
 			default:
 				panic(fmt.Errorf("unrecogned header (%s) tags (%s)", head, tags))
 			}

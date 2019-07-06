@@ -80,7 +80,44 @@ func TestBGPUpdateMessage(t *testing.T) {
 		Marker: _16ByteMaker,
 		Type:   _Update,
 		Length: 61,
-		Body:   &Update{},
+		Body: &Update{
+			WithdrawnLength:     0,
+			PathAttributeLength: 18,
+			PathAttributes: []PathAttribute{
+				PathAttribute{
+					Flags:  Transitive,
+					Code:   Origin,
+					Length: 1,
+				},
+				PathAttribute{
+					Flags:  Transitive,
+					Code:   AsPath,
+					Length: 4,
+				},
+				PathAttribute{
+					Flags:  Transitive,
+					Code:   Nexthop,
+					Length: 4,
+				},
+			},
+			NLRI: []PrefixSpec{
+				PrefixSpec{
+					Length: 24,
+				},
+				PrefixSpec{
+					Length: 24,
+				},
+				PrefixSpec{
+					Length: 24,
+				},
+				PrefixSpec{
+					Length: 24,
+				},
+				PrefixSpec{
+					Length: 24,
+				},
+			},
+		},
 	}
 	checkBGP(t, want, testBGPUpdateMessage, _Update)
 }

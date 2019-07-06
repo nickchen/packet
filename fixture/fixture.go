@@ -207,7 +207,7 @@ type TCP struct {
 	WindowSize    uint16
 	Checksum      Checksum
 	UrgentPointer uint16
-	Options       []byte `packet:"when=DataOffset-gt-5"`
+	Options       []byte `packet:"lengthfor"`
 	Body          interface{}
 }
 
@@ -229,4 +229,14 @@ func (tcp TCP) BodyStruct() interface{} {
 		return &bgp.Message{}
 	}
 	return nil
+}
+
+// LengthFor
+
+func (tcp TCP) LengthFor(fieldname string) uint64 {
+	switch fieldname {
+	case "Options":
+		return uint64((32*tcp.DataOffset - 32*5) / 8)
+	}
+	return 0
 }
