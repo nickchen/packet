@@ -69,7 +69,7 @@ type Open struct {
 // OptionalParameter defines the optional parameter in BGP OPEN message as per https://tools.ietf.org/html/rfc4271#section-4.2
 type OptionalParameter struct {
 	Type   uint8
-	Length uint8       `packet:"datalength"`
+	Length uint8
 	Data   interface{} `packet:"lengthfrom=ParameterLength"`
 }
 
@@ -77,7 +77,20 @@ type OptionalParameter struct {
 // which consist of Length for how many bits are in a network Prefix
 type PrefixSpec struct {
 	Length uint8
-	Prefix []byte `packet:"lengthfrom=Length"`
+	Prefix []byte `packet:"lengthfor"`
+}
+
+// LengthFor to return the byte length of Length value, which depends on Flags
+func (p PrefixSpec) LengthFor(fieldname string) uint64 {
+	switch fieldname {
+	case "Prefix":
+		l := uint64(p.Length / 8)
+		if p.Length%8 != 0 {
+			l++
+		}
+		return l
+	}
+	return 0
 }
 
 // AttributeFlag flags for Path Attributes
@@ -150,8 +163,57 @@ func (t AttributeType) String() string {
 type PathAttribute struct {
 	Flags  AttributeFlag
 	Code   AttributeType
-	Length uint16 `packet:"lengthfor"`
-	Body   []byte `packet:"lengthfrom=Length"`
+	Length uint16      `packet:"lengthfor"`
+	Data   interface{} `packet:"lengthfrom=Length"`
+}
+
+// OriginCode origin code
+type OriginCode uint8
+
+const (
+	// IBGP Internal Border Gateway Protocol
+	IBGP OriginCode = iota
+	// EBGP External Border Gateway Protocol
+	EBGP
+	// INCOMPLETE incomplete origin
+	INCOMPLETE
+)
+
+func (o OriginCode) String() string {
+	switch o {
+	case IBGP:
+		return "IBGP"
+	case EBGP:
+		return "EBGP"
+	case INCOMPLETE:
+		return "INCOMPLETE"
+	}
+	return fmt.Sprintf("Origin(%d)", int(o))
+}
+
+// OriginAttribute is Origin Path Attribute
+type OriginAttribute struct {
+	Origin OriginCode
+}
+
+// AsPathType AS type
+type AsPathType uint8
+
+const (
+	// AsSet AS set
+	AsSet AsPathType = 1
+	// AsSequence AS sequence
+	AsSequence AsPathType = 2
+)
+
+// ASN BGP Autonomous System Number
+type ASN uint16
+
+// AsPathAttribute AS path attribute
+type AsPathAttribute struct {
+	Type  AsPathType
+	Count uint8
+	List  []ASN `packet:"countfrom=Count"`
 }
 
 func (f AttributeFlag) String() string {
@@ -173,6 +235,12 @@ func (f AttributeFlag) String() string {
 
 // BodyStruct interface implementation to provide struct for the body
 func (p PathAttribute) BodyStruct() interface{} {
+	switch p.Code {
+	case Origin:
+		return &OriginAttribute{}
+	case AsPath:
+		return &[]AsPathAttribute{}
+	}
 	b := make([]byte, p.Length)
 	return &b
 }
@@ -195,7 +263,7 @@ type Update struct {
 	WithdrawnRoutes     []PrefixSpec `packet:"lengthfrom=WithdrawnLength"`
 	PathAttributeLength uint16
 	PathAttributes      []PathAttribute `packet:"lengthfrom=PathAttributeLength"`
-	NLRI                []PrefixSpec
+	NLRI                []PrefixSpec    `packet:"lengthrest"`
 }
 
 // ErrorType BGP error message type as defined in https://tools.ietf.org/html/rfc4271#section-4.5

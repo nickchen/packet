@@ -212,15 +212,9 @@ func (c *context) setStructFieldValue(v reflect.Value, parent reflect.Value, f *
 				b := m.BodyStruct()
 				if b != nil {
 					bv := reflect.ValueOf(b)
-					if bv.Kind() != reflect.Ptr {
-						panic(fmt.Errorf("invalid return from %s.BodyStruct for (%s)", v.Type().Name(), bv.Kind()))
-					}
 					// set body before the decoding process, so it should be returned along with error if any
 					v.Set(bv)
-					v = bv
-					if v.Kind() == reflect.Interface {
-						return fmt.Errorf("double interface type %s.%s", parent.Type().Name(), f.Name)
-					}
+					v = bv.Elem()
 				} else {
 					return fmt.Errorf("function BodyStruct returned nil for %s.%s", parent.Type().Name(), f.Name)
 				}
@@ -229,35 +223,42 @@ func (c *context) setStructFieldValue(v reflect.Value, parent reflect.Value, f *
 			panic(fmt.Errorf("unhandled interface type %s.%s", parent.Type().Name(), f.Name))
 		}
 	}
-
+	// length is for data bytes
 	var length uint64
-	if f.lengthfrom != "" {
-		// have length specification from another field in the same struct
+	// count is for array size
+	var count uint64
+	switch {
+	case f.lengthfrom != "":
 		length = c.getStructUnint(parent, f.lengthfrom)
-	} else if f.f.lengthfor {
+	case f.f.lengthfor:
 		if m, ok := parent.Interface().(LengthFor); ok {
 			length = m.LengthFor(f.Name)
 		} else {
 			panic(fmt.Errorf("no LengthFor function for struct %s", parent.Type().Name()))
 		}
+	case f.f.lengthrest:
+		length = c.end() - c.current
+	case f.countfrom != "":
+		count = c.getStructUnint(parent, f.countfrom)
 	}
 
 	switch v.Kind() {
 	case reflect.Slice:
-		if length == 0 {
+		switch {
+		case length == 0 && count == 0:
 			return nil
+		case count != 0:
+			c.growSlice(v, 0, int(count))
+			// no length, use current the stack
+		case length != 0:
+			c.push(c.current + length)
+			defer c.release()
 		}
-		c.push(c.current + length)
-		defer c.release()
 		fallthrough
 	case reflect.Array:
-		// a common use cases are:
-		// 	- set bytes -> array
-		//  - dynamic bytes -> slice, base on length
-		// other wise we should probably use an interface, use keyword=body
 		return c._array(v)
-	case reflect.Ptr:
-		return c._ptr(v)
+	case reflect.Struct:
+		return c._struct(v)
 	default:
 		panic(fmt.Errorf("unhandled type (%s) for field %s.%s", v, parent.Type().Name(), f.Name))
 	}
@@ -285,10 +286,22 @@ func (c *context) _element(v reflect.Value) error {
 	switch v.Kind() {
 	case reflect.Struct:
 		return c._struct(v)
-	case reflect.Uint8:
+	case reflect.Uint8, reflect.Uint16:
+		length := map[reflect.Kind]uint64{reflect.Uint8: 1, reflect.Uint16: 2, reflect.Uint32: 4, reflect.Uint64: 8}[v.Kind()]
 		// bytes
-		v.SetUint(uint64(c.data[c.current]))
-		c.current++
+		var value uint64
+		switch length {
+		case 1:
+			value = uint64(c.data[c.current])
+		case 2:
+			value = uint64(binary.BigEndian.Uint16(c.data[c.current : c.current+length]))
+		case 4:
+			value = uint64(binary.BigEndian.Uint32(c.data[c.current : c.current+length]))
+		case 8:
+			value = uint64(binary.BigEndian.Uint64(c.data[c.current : c.current+length]))
+		}
+		v.SetUint(value)
+		c.current += length
 	default:
 		return &UnmarshalTypeError{Value: "element", Type: v.Type(), Offset: int64(c.current)}
 	}
@@ -297,11 +310,13 @@ func (c *context) _element(v reflect.Value) error {
 
 const sliceInitialCapacity = 8
 
-func (c *context) growSlice(v reflect.Value, i int) {
+func (c *context) growSlice(v reflect.Value, i, newcap int) {
 	if i >= v.Cap() {
-		newcap := v.Cap() + v.Cap()/2
-		if newcap < sliceInitialCapacity {
-			newcap = sliceInitialCapacity
+		if newcap == 0 {
+			newcap = v.Cap() + v.Cap()/2
+			if newcap < sliceInitialCapacity {
+				newcap = sliceInitialCapacity
+			}
 		}
 		newv := reflect.MakeSlice(v.Type(), v.Len(), newcap)
 		reflect.Copy(newv, v)
@@ -314,9 +329,9 @@ func (c *context) growSlice(v reflect.Value, i int) {
 
 // _array handles slices or arrays
 func (c *context) _array(v reflect.Value) error {
-	for i := 0; c.current < c.end(); i++ {
+	for i := 0; c.current < c.end() && c.current < uint64(len(c.data)); i++ {
 		if v.Kind() == reflect.Slice && i >= v.Len() {
-			c.growSlice(v, i)
+			c.growSlice(v, i, 0)
 		}
 		if i >= v.Cap() {
 			break

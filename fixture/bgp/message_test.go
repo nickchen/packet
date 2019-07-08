@@ -2,11 +2,12 @@ package bgp
 
 import (
 	"fmt"
-	"reflect"
 	"testing"
 
 	"github.com/nickchen/packet"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/davecgh/go-spew/spew"
 )
 
 var testBGPUpdateMessage = []byte{
@@ -59,9 +60,11 @@ func checkBGP(t *testing.T, want *Message, packetBytes []byte, MessageType Messa
 		fmt.Printf("Body: %+v\n", bgp.Body)
 	}
 	assert.Equal(t, bgp.Type, MessageType, "message type not equal")
-	if !reflect.DeepEqual(bgp, want) {
-		t.Errorf("BGP packet processing failed:\ngot  :\n%#v\n\nwant :\n%#v\n\n", bgp, want)
-	}
+	spew.Dump(bgp)
+	assert.Equal(t, want, bgp, "object not equal")
+	// if !reflect.DeepEqual(bgp, want) {
+	// 	t.Errorf("BGP packet processing failed:\ngot  :\n%+v\n\nwant :\n%#v\n\n", bgp, want)
+	// }
 
 	// buf := gopacket.NewSerializeBuffer()
 	// opts := gopacket.SerializeOptions{}
@@ -86,36 +89,46 @@ func TestBGPUpdateMessage(t *testing.T) {
 			PathAttributeLength: 18,
 			PathAttributes: []PathAttribute{
 				PathAttribute{
-					Flags:  Transitive,
+					Flags:  0x0,
 					Code:   Origin,
 					Length: 1,
+					Data:   &OriginAttribute{Origin: IBGP},
 				},
 				PathAttribute{
-					Flags:  Transitive,
+					Flags:  0x0,
 					Code:   AsPath,
 					Length: 4,
+					Data: &[]AsPathAttribute{
+						AsPathAttribute{Type: AsSequence, Count: 1, List: []ASN{ASN(65000)}},
+					},
 				},
 				PathAttribute{
-					Flags:  Transitive,
+					Flags:  0x0,
 					Code:   Nexthop,
 					Length: 4,
+					Data:   &[]byte{0xc0, 0xa8, 0x56, 0x64},
 				},
 			},
 			NLRI: []PrefixSpec{
 				PrefixSpec{
 					Length: 24,
+					Prefix: []byte{0x0a, 0x01, 0x03},
 				},
 				PrefixSpec{
 					Length: 24,
+					Prefix: []byte{0x0a, 0x01, 0x06},
 				},
 				PrefixSpec{
 					Length: 24,
+					Prefix: []byte{0x0a, 0x01, 0x07},
 				},
 				PrefixSpec{
 					Length: 24,
+					Prefix: []byte{0x0a, 0x01, 0x04},
 				},
 				PrefixSpec{
 					Length: 24,
+					Prefix: []byte{0x0a, 0x01, 0x05},
 				},
 			},
 		},

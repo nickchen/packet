@@ -50,8 +50,10 @@ type field struct {
 	length     *length
 	when       *when
 	lengthfrom string
-	f struct {
-		lengthfor bool
+	countfrom  string
+	f          struct {
+		lengthfor  bool
+		lengthrest bool
 	}
 }
 
@@ -110,6 +112,8 @@ func (f *field) populateTag() {
 				f.when = &when{field: c[0], condition: c[1], value: v}
 			case "lengthfrom":
 				f.lengthfrom = value
+			case "countfrom":
+				f.countfrom = value
 			default:
 				panic(fmt.Errorf("unrecogned header (%s)", head))
 			}
@@ -117,6 +121,8 @@ func (f *field) populateTag() {
 			switch head {
 			case "lengthfor":
 				f.f.lengthfor = true
+			case "lengthrest":
+				f.f.lengthrest = true
 			default:
 				panic(fmt.Errorf("unrecogned header (%s) tags (%s)", head, tags))
 			}
