@@ -124,6 +124,7 @@ goarch: amd64
 pkg: github.com/nickchen/packet
 BenchmarkPacket-12    	 1000000	      2168 ns/op	     624 B/op	      12 allocs/op
 BenchmarkPacket-12    	 1000000	      1946 ns/op	     592 B/op	      12 allocs/op
+BenchmarkPacket-16    	  300000	      4609 ns/op	     784 B/op	      17 allocs/op
 PASS
 ok  	github.com/nickchen/packet	2.742s
 Success: Benchmarks passed.

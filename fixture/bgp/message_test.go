@@ -45,6 +45,7 @@ func printDetailErrorInformation(err error) {
 		fmt.Printf("Offset: %d End: %d\n", et.Offset, et.End)
 	}
 }
+
 func checkBGP(t *testing.T, want *Message, packetBytes []byte, MessageType MessageType) {
 	bgp := &Message{}
 	err := packet.Unmarshal(packetBytes, bgp)

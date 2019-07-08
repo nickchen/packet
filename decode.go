@@ -4,30 +4,20 @@ import (
 	"encoding/binary"
 	"fmt"
 	"reflect"
-	"sync"
 )
 
 var _structFields map[string][]*field
-var _contextPool sync.Pool
 
 func init() {
 	_structFields = make(map[string][]*field)
-	_contextPool = sync.Pool{
-		New: func() interface{} {
-			// allocate and return a new context
-			return new(context)
-		},
-	}
 }
 
 // Unmarshal parson the packet data and stores the result in value pointed by v.
 // If v is nil or not a pointer, Unmarshal returns an InvalidUnmarshalError.
 func Unmarshal(data []byte, v interface{}) error {
-	c, err := newContext(data)
-	defer c.release()
-	if err != nil {
-		return err
-	}
+	c := &context{data: data}
+	c.ends.current = 0
+	c.ends.stack[c.ends.current] = uint64(len(data))
 	return c.decode(v)
 }
 
@@ -41,28 +31,38 @@ type LengthFor interface {
 	LengthFor(fieldname string) uint64
 }
 
+const maxEnds = 16
+
 type context struct {
 	data    []byte
 	start   uint64
 	current uint64
-	end     uint64
-	bits    struct {
+	ends    struct {
+		current uint64
+		stack   [maxEnds]uint64
+	}
+	bits struct {
 		data   uint64
 		length uint64
 	}
 }
 
-func newContext(data []byte) (*context, error) {
-	ctx := _contextPool.Get().(*context)
-	ctx.data = data
-	ctx.start = 0
-	ctx.current = 0
-	ctx.end = uint64(len(data))
-	return ctx, nil
+func (c *context) end() uint64 {
+	return c.ends.stack[c.ends.current]
 }
 
 func (c *context) release() {
-	_contextPool.Put(c)
+	if c.ends.current > 0 {
+		c.ends.current--
+	} else {
+		panic(fmt.Errorf("release ends from zero"))
+	}
+}
+
+// push a new end into the top, until it's released, use this end as data end
+func (c *context) push(end uint64) {
+	c.ends.current++
+	c.ends.stack[c.ends.current] = end
 }
 
 func (c *context) decode(v interface{}) error {
@@ -70,10 +70,7 @@ func (c *context) decode(v interface{}) error {
 	if rv.Kind() != reflect.Ptr || rv.IsNil() {
 		return &UnmarshalPtrError{reflect.TypeOf(v)}
 	}
-	if err := c._ptr(rv); err != nil {
-		return err
-	}
-	return nil
+	return c._ptr(rv)
 }
 
 func (c *context) _ptr(v reflect.Value) error {
@@ -86,25 +83,13 @@ func (c *context) _ptr(v reflect.Value) error {
 	switch pv.Kind() {
 	case reflect.Ptr:
 		// double pointer
-		if err := c._ptr(pv); err != nil {
-			return err
-		}
-	case reflect.Slice:
-		if err := c._slice(pv); err != nil {
-			return err
-		}
-	case reflect.Array:
-		if err := c._array(pv); err != nil {
-			return err
-		}
+		return c._ptr(pv)
+	case reflect.Slice, reflect.Array:
+		return c._array(pv)
 	case reflect.Struct:
-		if err := c._struct(pv); err != nil {
-			return err
-		}
-	default:
-		return &UnmarshalTypeError{Value: "ptr", Type: pv.Type()}
+		return c._struct(pv)
 	}
-	return nil
+	return &UnmarshalTypeError{Value: "ptr", Type: pv.Type()}
 }
 
 func (c *context) getFields(v reflect.Type) []*field {
@@ -162,39 +147,21 @@ func (c *context) setStructFieldValueFromLength(v reflect.Value, parent reflect.
 	return nil
 }
 
-func (c *context) growSlice(v reflect.Value, i int) {
-	if i >= v.Cap() {
-		newcap := v.Cap() + v.Cap()/2
-		if newcap < 4 {
-			newcap = 4
-		}
-		newv := reflect.MakeSlice(v.Type(), v.Len(), newcap)
-		reflect.Copy(newv, v)
-		v.Set(newv)
-	}
-	if i >= v.Len() {
-		v.SetLen(i + 1)
-	}
-}
-
 // getStructUnint get the uint64 attribute value for the current instance
 func (c *context) getStructUnint(parent reflect.Value, fieldname string) uint64 {
 	return parent.FieldByName(fieldname).Uint()
 }
 
 func (c *context) rangeCheck(parent reflect.Value, f *field, length uint64) error {
-	if (c.current + length) > c.end {
-		return &UnmarshalUnexpectedEnd{Struct: parent.Type().Name(), Field: f.Name, Offset: int64(c.current), End: int64(c.end)}
+	if (c.current + length) > c.end() {
+		return &UnmarshalUnexpectedEnd{Struct: parent.Type().Name(), Field: f.Name, Offset: int64(c.current), End: int64(c.end())}
 	}
 	return nil
 }
 
 func (c *context) setStructFieldValue(v reflect.Value, parent reflect.Value, f *field) error {
 	if f.length != nil {
-		if err := c.setStructFieldValueFromLength(v, parent, f); err != nil {
-			return err
-		}
-		return nil
+		return c.setStructFieldValueFromLength(v, parent, f)
 	}
 	if f.when != nil && !f.when.eval(parent) {
 		return nil
@@ -214,7 +181,7 @@ func (c *context) setStructFieldValue(v reflect.Value, parent reflect.Value, f *
 			if m, ok := parent.Interface().(LengthFor); ok {
 				length = m.LengthFor(f.Name)
 			} else {
-				panic(fmt.Errorf("no LengthFor function for struct %s", parent.Type().Name()))
+				return fmt.Errorf("no LengthFor function for struct %s", parent.Type().Name())
 			}
 		} else {
 			length = map[reflect.Kind]uint64{reflect.Uint8: 1, reflect.Uint16: 2, reflect.Uint32: 4, reflect.Uint64: 8}[v.Kind()]
@@ -280,39 +247,20 @@ func (c *context) setStructFieldValue(v reflect.Value, parent reflect.Value, f *
 		if length == 0 {
 			return nil
 		}
-		// the data length is from current
-		newc, err := newContext(c.data[c.current : c.current+length])
-		if err != nil {
-			return err
-		}
-		defer newc.release()
-		// grow at least one slice
-		if err := newc._slice(v); err != nil {
-			return err
-		}
-		c.current += length
+		c.push(c.current + length)
+		defer c.release()
+		fallthrough
 	case reflect.Array:
 		// a common use cases are:
 		// 	- set bytes -> array
 		//  - dynamic bytes -> slice, base on length
 		// other wise we should probably use an interface, use keyword=body
-		if err := c._array(v); err != nil {
-			return err
-		}
+		return c._array(v)
 	case reflect.Ptr:
-		newc, err := newContext(c.data[c.current:c.end])
-		if err != nil {
-			return err
-		}
-		defer newc.release()
-		if err := newc._ptr(v); err != nil {
-			return err
-		}
-		c.current += (newc.current - newc.current)
+		return c._ptr(v)
 	default:
 		panic(fmt.Errorf("unhandled type (%s) for field %s.%s", v, parent.Type().Name(), f.Name))
 	}
-	return nil
 }
 
 // _struct unmarshals the structure by setting the values base on type, special fields:
@@ -332,26 +280,13 @@ func (c *context) _struct(v reflect.Value) error {
 	return nil
 }
 
-func (c *context) isDone() bool {
-	return int(c.current) >= len(c.data)
-}
-
 // element set value for array/slice element
 func (c *context) _element(v reflect.Value) error {
 	switch v.Kind() {
 	case reflect.Struct:
-		newc, err := newContext(c.data)
-		if err != nil {
-			return err
-		}
-		defer newc.release()
-		newc.current = c.current
-		newc.start = c.current
-		if err := newc._struct(v); err != nil {
-			return err
-		}
-		c.current += (newc.current - newc.start)
+		return c._struct(v)
 	case reflect.Uint8:
+		// bytes
 		v.SetUint(uint64(c.data[c.current]))
 		c.current++
 	default:
@@ -360,19 +295,32 @@ func (c *context) _element(v reflect.Value) error {
 	return nil
 }
 
-func (c *context) _slice(v reflect.Value) error {
-	for i := 0; c.current < c.end; i++ {
-		c.growSlice(v, i)
-		if err := c._element(v.Index(i)); err != nil {
-			return err
+const sliceInitialCapacity = 8
+
+func (c *context) growSlice(v reflect.Value, i int) {
+	if i >= v.Cap() {
+		newcap := v.Cap() + v.Cap()/2
+		if newcap < sliceInitialCapacity {
+			newcap = sliceInitialCapacity
 		}
+		newv := reflect.MakeSlice(v.Type(), v.Len(), newcap)
+		reflect.Copy(newv, v)
+		v.Set(newv)
 	}
-	return nil
+	if i >= v.Len() {
+		v.SetLen(i + 1)
+	}
 }
 
-// array set array values, grow slices as necessary
+// _array handles slices or arrays
 func (c *context) _array(v reflect.Value) error {
-	for i := 0; i < v.Len() && c.current < c.end; i++ {
+	for i := 0; c.current < c.end(); i++ {
+		if v.Kind() == reflect.Slice && i >= v.Len() {
+			c.growSlice(v, i)
+		}
+		if i >= v.Cap() {
+			break
+		}
 		if err := c._element(v.Index(i)); err != nil {
 			return err
 		}
