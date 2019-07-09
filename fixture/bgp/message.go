@@ -2,6 +2,7 @@ package bgp
 
 import (
 	"fmt"
+	"net"
 	"strings"
 )
 
@@ -73,7 +74,7 @@ func (o Open) LengthFor(fieldname string) uint64 {
 type OptionalParameter struct {
 	Type   uint8
 	Length uint8
-	Data   interface{} `packet:"lengthfrom=ParameterLength"`
+	Data   interface{} `packet:"lengthfor"`
 }
 
 // PrefixSpec is a compact container for route specification in BGP messages,
@@ -229,7 +230,30 @@ func (f AttributeFlag) String() string {
 	if (f & ExtendedLength) != 0 {
 		s = append(s, "ExtendedLength")
 	}
-	return strings.Join(s, "|")
+	return fmt.Sprintf("Flags(0x%x)", int(f)) + strings.Join(s, "|")
+}
+
+// NexthopAttribute containers a nexthop
+type NexthopAttribute struct {
+	Nexthop []byte
+}
+
+// LocalPrefAttribute local pref BGP attribute
+type LocalPrefAttribute struct {
+	LocalPref uint32
+}
+
+// AggregatorAttribute aggregator BGP attribute
+type AggregatorAttribute struct {
+	AS     uint16
+	Origin net.IP
+}
+
+// CommunityAttribute community BGP attribute
+type CommunityAttribute struct {
+	Attribute uint32
+	as        uint16
+	value     uint16
 }
 
 // InstanceFor interface implementation to provide struct for the body

@@ -86,7 +86,6 @@ func TestCompare(t *testing.T) {
 	assert.NotNil(t, gpTCPLayer, "tcp layer decoded")
 	gpTCP, _ := gpTCPLayer.(*layers.TCP)
 	fmt.Printf("GP TCP: %+v\n", gpTCP)
-	assert.NotNil(t, nil, "failure is expected")
 }
 
 func IPPacketEqual(t *testing.T, ip *fixture.IPv4, gp *layers.IPv4) bool {
@@ -133,8 +132,8 @@ Success: Benchmarks passed.
 */
 func BenchmarkPacket(b *testing.B) {
 	b.ReportAllocs()
+	ether := &fixture.EthernetII{}
 	for n := 0; n < b.N; n++ {
-		ether := &fixture.EthernetII{}
 		_ = Unmarshal(frame, ether)
 	}
 }
@@ -142,25 +141,26 @@ func BenchmarkPacket(b *testing.B) {
 func TestReadPCAP(t *testing.T) {
 	pcap, err := fixture.OpenPCAP("fixture/NTLM-wenchao.pcap")
 	assert.NoError(t, err, "failed to open pcap")
-	count := 0
-	for p := range pcap.PacketData() {
-		fmt.Printf("=====\n")
-		ether := &fixture.EthernetII{}
+	if err == nil {
+		count := 0
+		for p := range pcap.PacketData() {
+			fmt.Printf("=====\n")
+			ether := &fixture.EthernetII{}
 
-		err = Unmarshal(p, ether)
-		assert.NoError(t, err, "failed to decode")
-		fmt.Printf("Packet: %+v\n", ether)
-		ip, _ := ether.Body.(*fixture.IPv4)
-		assert.NotNil(t, ip, "ether->ip")
-		fmt.Printf("IP: %+v\n", ip)
+			err = Unmarshal(p, ether)
+			assert.NoError(t, err, "failed to decode")
+			fmt.Printf("Packet: %+v\n", ether)
+			ip, _ := ether.Body.(*fixture.IPv4)
+			assert.NotNil(t, ip, "ether->ip")
+			fmt.Printf("IP: %+v\n", ip)
 
-		tcp, _ := ip.Body.(*fixture.TCP)
-		assert.NotNil(t, tcp, "ip->tcp")
-		fmt.Printf("TCP: %s\n", string(tcp.Body.([]byte)))
-		count++
-		if count >= 5 {
-			break
+			tcp, _ := ip.Body.(*fixture.TCP)
+			assert.NotNil(t, tcp, "ip->tcp")
+			fmt.Printf("TCP: %s\n", string(tcp.Body.([]byte)))
+			count++
+			if count >= 5 {
+				break
+			}
 		}
 	}
-	assert.NotNil(t, nil, "failure is expected")
 }

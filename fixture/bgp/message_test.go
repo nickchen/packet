@@ -7,7 +7,7 @@ import (
 	"github.com/nickchen/packet"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/davecgh/go-spew/spew"
+	"github.com/google/go-cmp/cmp"
 )
 
 var testBGPUpdateMessage = []byte{
@@ -47,36 +47,40 @@ func printDetailErrorInformation(err error) {
 	}
 }
 
-func checkBGP(t *testing.T, want *Message, packetBytes []byte, MessageType MessageType) {
-	bgp := &Message{}
-	err := packet.Unmarshal(packetBytes, bgp)
-	if err != nil {
-		t.Error("Failed to decode packet:", err)
-		printDetailErrorInformation(err)
-		fmt.Printf("Len: %d\n", len(packetBytes))
+func checkBGP(t *testing.T, want interface{}, packetBytes []byte, MessageType MessageType) {
+	switch want.(type) {
+	case *Message:
+		bgp := &Message{}
+		err := packet.Unmarshal(packetBytes, bgp)
+		if err != nil {
+			t.Error("Failed to decode packet:", err)
+			printDetailErrorInformation(err)
+		}
+		assert.Equal(t, bgp.Type, MessageType, "message type not equal")
+		difference := cmp.Diff(want.(*Message), bgp)
+		assert.Empty(t, difference, "diff found")
+	case *[]Message:
+		bgps := &[]Message{}
+		err := packet.Unmarshal(packetBytes, bgps)
+		if err != nil {
+			t.Error("Failed to decode packet:", err)
+			printDetailErrorInformation(err)
+		}
+		fmt.Printf("BGP: %+v\n", bgps)
+		difference := cmp.Diff(want.(*[]Message), bgps)
+		assert.Empty(t, difference, "diff found")
+	default:
+		assert.Fail(t, "unknown type")
 	}
-	fmt.Printf("Message: %+v\n", bgp)
-	if bgp.Body != nil {
-		fmt.Printf("Body: %+v\n", bgp.Body)
+}
+
+func TestBGPKeepaliveMessage(t *testing.T) {
+	want := &Message{
+		Marker: _16ByteMaker,
+		Type:   _Keepalive,
+		Length: 19,
 	}
-	assert.Equal(t, bgp.Type, MessageType, "message type not equal")
-	spew.Dump(bgp)
-	assert.Equal(t, want, bgp, "object not equal")
-	// if !reflect.DeepEqual(bgp, want) {
-	// 	t.Errorf("BGP packet processing failed:\ngot  :\n%+v\n\nwant :\n%#v\n\n", bgp, want)
-	// }
-
-	// buf := gopacket.NewSerializeBuffer()
-	// opts := gopacket.SerializeOptions{}
-	// err = want.SerializeTo(buf, opts)
-	// if err != nil {
-	// 	t.Error(err)
-	// }
-
-	// if !reflect.DeepEqual(bgp.BaseLayer.Contents, buf.Bytes()) {
-	// 	t.Errorf("BGP packet serialization failed for packet "+
-	// 		":\ngot  :\n%x\n\nwant :\n%x\n\n", buf.Bytes(), bgp.BaseLayer.Contents)
-	// }
+	checkBGP(t, want, testBGPKeepaliveMessage, _Keepalive)
 }
 
 func TestBGPUpdateMessage(t *testing.T) {
@@ -89,13 +93,13 @@ func TestBGPUpdateMessage(t *testing.T) {
 			PathAttributeLength: 18,
 			PathAttributes: []PathAttribute{
 				PathAttribute{
-					Flags:  0x0,
+					Flags:  0x40,
 					Code:   Origin,
 					Length: 1,
 					Data:   &OriginAttribute{Origin: IBGP},
 				},
 				PathAttribute{
-					Flags:  0x0,
+					Flags:  0x40,
 					Code:   AsPath,
 					Length: 4,
 					Data: &[]AsPathAttribute{
@@ -103,7 +107,7 @@ func TestBGPUpdateMessage(t *testing.T) {
 					},
 				},
 				PathAttribute{
-					Flags:  0x0,
+					Flags:  0x40,
 					Code:   Nexthop,
 					Length: 4,
 					Data:   &[]byte{0xc0, 0xa8, 0x56, 0x64},
@@ -134,4 +138,182 @@ func TestBGPUpdateMessage(t *testing.T) {
 		},
 	}
 	checkBGP(t, want, testBGPUpdateMessage, _Update)
+}
+
+func TestBGPComboPacket(t *testing.T) {
+	wants := &[]Message{
+		Message{
+			Marker: _16ByteMaker,
+			Type:   _Keepalive,
+			Length: 19,
+			Body:   Keepalive{},
+		},
+		Message{
+			Marker: _16ByteMaker,
+			Type:   _Update,
+			Length: 98,
+			Body: Update{
+				WithdrawnLength:     0,
+				PathAttributeLength: 72,
+				PathAttributes: []PathAttribute{
+					PathAttribute{
+						Flags:  Transitive,
+						Code:   Origin,
+						Length: 1,
+						Data:   OriginAttribute{Origin: INCOMPLETE},
+					},
+					PathAttribute{
+						Flags:  Transitive,
+						Code:   AsPath,
+						Length: 10,
+						Data: []AsPathAttribute{
+							AsPathAttribute{Type: AsSet, Count: 2, List: []ASN{ASN(500), ASN(500)}},
+							AsPathAttribute{Type: AsSequence, Count: 1, List: []ASN{ASN(65211)}},
+						},
+					},
+					PathAttribute{
+						Flags:  Transitive,
+						Code:   Nexthop,
+						Length: 4,
+						Data:   NexthopAttribute{Nexthop: []byte{0xc0, 0xa8, 0x00, 0x0f}},
+					},
+					PathAttribute{
+						Flags:  Transitive,
+						Code:   LocalPref,
+						Length: 4,
+						Data:   LocalPrefAttribute{LocalPref: 100},
+					},
+					PathAttribute{
+						Flags:  Transitive,
+						Code:   AtomicAggregate,
+						Length: 0,
+					},
+					PathAttribute{
+						Flags:  Transitive | Optional,
+						Code:   Aggregator,
+						Length: 6,
+						Data:   AggregatorAttribute{AS: 65210, Origin: []byte{0xc0, 0xa8, 0x00, 0x0a}},
+					},
+					PathAttribute{
+						Flags:  Transitive | Optional,
+						Code:   Community,
+						Length: 12,
+						Data: []CommunityAttribute{
+							CommunityAttribute{
+								Attribute: uint32((65215 << 16) | (1)),
+							},
+							CommunityAttribute{
+								Attribute: uint32((790 << 16) | (4)),
+							},
+							CommunityAttribute{
+								Attribute: uint32((340 << 16) | (250)),
+							},
+						},
+					},
+					PathAttribute{
+						Flags:  Optional,
+						Code:   OriginatorID,
+						Length: 4,
+						Data:   []byte{0xc0, 0xa8, 0x00, 0x0f},
+					},
+					PathAttribute{
+						Flags:  Optional,
+						Code:   ClusterList,
+						Length: 4,
+						Data:   []byte{0xc0, 0xa8, 0x00, 0xfa},
+					},
+				},
+				NLRI: []PrefixSpec{
+					PrefixSpec{
+						Length: 16,
+						Prefix: []byte{0xac, 0x10},
+					},
+				},
+			},
+		},
+		Message{
+			Marker: _16ByteMaker,
+			Type:   _Update,
+			Length: 99,
+			Body: Update{
+				WithdrawnLength:     0,
+				PathAttributeLength: 72,
+				PathAttributes: []PathAttribute{
+					PathAttribute{
+						Flags:  Transitive,
+						Code:   Origin,
+						Length: 1,
+						Data:   OriginAttribute{Origin: IBGP},
+					},
+					PathAttribute{
+						Flags:  Transitive,
+						Code:   AsPath,
+						Length: 10,
+						Data: []AsPathAttribute{
+							AsPathAttribute{Type: AsSet, Count: 2, List: []ASN{ASN(500), ASN(500)}},
+							AsPathAttribute{Type: AsSequence, Count: 1, List: []ASN{ASN(65211)}},
+						},
+					},
+					PathAttribute{
+						Flags:  Transitive,
+						Code:   Nexthop,
+						Length: 4,
+						Data:   NexthopAttribute{Nexthop: []byte{0xc0, 0xa8, 0x00, 0x0f}},
+					},
+					PathAttribute{
+						Flags:  Transitive,
+						Code:   LocalPref,
+						Length: 4,
+						Data:   LocalPrefAttribute{LocalPref: 100},
+					},
+					PathAttribute{
+						Flags:  Transitive,
+						Code:   AtomicAggregate,
+						Length: 0,
+					},
+					PathAttribute{
+						Flags:  Transitive | Optional,
+						Code:   Aggregator,
+						Length: 6,
+						Data:   AggregatorAttribute{AS: 65210, Origin: []byte{0xc0, 0xa8, 0x00, 0x0a}},
+					},
+					PathAttribute{
+						Flags:  Transitive | Optional,
+						Code:   Community,
+						Length: 12,
+						Data: []CommunityAttribute{
+							CommunityAttribute{
+								Attribute: uint32((65215 << 16) | (1)),
+							},
+							CommunityAttribute{
+								Attribute: uint32((790 << 16) | (4)),
+							},
+							CommunityAttribute{
+								Attribute: uint32((340 << 16) | (250)),
+							},
+						},
+					},
+					PathAttribute{
+						Flags:  Optional,
+						Code:   OriginatorID,
+						Length: 4,
+						Data:   []byte{0xc0, 0xa8, 0x00, 0x0f},
+					},
+					PathAttribute{
+						Flags:  Optional,
+						Code:   ClusterList,
+						Length: 4,
+						Data:   []byte{0xc0, 0xa8, 0x00, 0xfb},
+					},
+				},
+				NLRI: []PrefixSpec{
+					PrefixSpec{
+						Length: 24,
+						Prefix: []byte{0xc0, 0xa8, 0x04},
+					},
+				},
+			},
+		},
+	}
+	checkBGP(t, wants, testBGPComboMessage, _Update)
 }

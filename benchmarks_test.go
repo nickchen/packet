@@ -151,6 +151,7 @@ func TestUnmarshalObjWithNestedPointer(test *testing.T) {
 			}}, o)
 }
 
+// BenchmarkUnmarshalObjWithPointer will allocate the pointer instance
 func BenchmarkUnmarshalObjWithPointer(b *testing.B) {
 	o := &ObjWithNestedPointer{}
 	for n := 0; n < b.N; n++ {

@@ -124,7 +124,7 @@ func TestReflectUnmarshalObjWithBytes(test *testing.T) {
 
 	o := &ObjReflectWithBytesArray{}
 	setObjWithBytesValue(o, objectReflectWithBytes)
-	assert.Equal(test, &ObjWithBytesArray{0xfa, 0x16, 0x3e, [5]byte{0x85, 0x92, 0x77, 0xfa, 0x16}}, o)
+	assert.Equal(test, &ObjReflectWithBytesArray{0xfa, 0x16, 0x3e, [5]byte{0x85, 0x92, 0x77, 0xfa, 0x16}}, o)
 }
 
 func BenchmarkReflectUnmarshalObjWithBytes(b *testing.B) {

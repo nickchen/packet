@@ -101,10 +101,7 @@ func (d *decoder) growSlice(v reflect.Value, i, len int) {
 	}
 }
 
-func (d *decoder) setValue(c *cursor, f reflect.StructField, parent reflect.Value, v reflect.Value) error {
-	if c.current >= c.end {
-		return nil
-	}
+func (d *decoder) setUintValue(c *cursor, f reflect.StructField, parent reflect.Value, v reflect.Value) error {
 	length := uint64(0)
 	switch v.Kind() {
 	case reflect.Uint8:
@@ -130,22 +127,35 @@ func (d *decoder) setValue(c *cursor, f reflect.StructField, parent reflect.Valu
 	case 8:
 		value = binary.BigEndian.Uint64(d.data[c.current : c.current+length])
 	}
+	v.SetUint(value)
+	c.current += length
+	return nil
+}
+
+func (d *decoder) setValue(c *cursor, f reflect.StructField, parent reflect.Value, v reflect.Value) error {
+	if c.current >= c.end {
+		return nil
+	}
 	switch v.Kind() {
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		v.SetUint(value)
+		return d.setUintValue(c, f, parent, v)
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		// not guarantee to read the length of bytes
-		length = uint64(v.Type().Bits() / 8)
+		// not guarantee to read the length of bytes, probably doesn't make sense
+		// to have Int in a packet message, but here we are
+		length := uint64(v.Type().Bits() / 8)
 		ivalue, read := binary.Varint(d.data[c.current : c.current+length])
 		if read != int(length) {
 			panic(fmt.Errorf("trying to read %d bytes from data, but got %d instead", length, read))
 		}
 		v.SetInt(ivalue)
+		c.current += length
 	case reflect.Slice:
-		// no need to grow if end is here
+		// grow initial capacity
 		d.growSlice(v, 0, 0)
 		fallthrough
 	case reflect.Array:
+		// Len for number of existing elements
+		// Cap for how big slice can grow
 		for j := 0; j <= v.Cap() && c.current < c.end; j++ {
 			if v.Kind() == reflect.Slice {
 				if j >= v.Cap() {
@@ -187,7 +197,6 @@ func (d *decoder) setValue(c *cursor, f reflect.StructField, parent reflect.Valu
 	default:
 		panic(fmt.Errorf("unhandled type %s.%s %+v", parent.Type().Name(), v.Type(), v))
 	}
-	c.current += length
 	return nil
 }
 
@@ -246,10 +255,12 @@ func (d *decoder) setFieldValue(c *cursor, f *field, parent reflect.Value, v ref
 	case f.length != nil:
 		return d.setBitFieldValue(c, f.StructField, f.length.unit, f.length.length, parent, v)
 	case f.f.lengthfor:
+		// call length for interface
 		if m, ok := parent.Interface().(LengthFor); ok {
 			length := m.LengthFor(f.Name)
 			newc = &cursor{start: c.current, end: c.current + length, current: c.current}
-			if newc.end > c.end {
+			// if length is zero or the new boundry is after previous end
+			if newc.end > c.end || newc.end == newc.current {
 				return nil
 			}
 		}
