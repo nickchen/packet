@@ -56,6 +56,28 @@ func (d *decoder) _ptr(c *cursor, v reflect.Value) error {
 		v.SetInt(int64(d.data[c.current]))
 	case reflect.Struct:
 		return d._struct(c, v)
+	case reflect.Array, reflect.Slice:
+		if v.Kind() == reflect.Slice {
+			// grow initial slice
+			d.growSlice(v, 0, 0)
+		}
+		for j := 0; j <= v.Cap() && c.current < c.end; j++ {
+			if v.Kind() == reflect.Slice {
+				if j >= v.Cap() {
+					// Set the len
+					d.growSlice(v, j, 0)
+				}
+				if j >= v.Len() {
+					v.SetLen(j + 1)
+				}
+			} else if j >= v.Cap() {
+				break
+			}
+			fv := v.Index(j)
+			if err := d.setValue(c, reflect.StructField{}, reflect.Value{}, fv); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }

@@ -93,13 +93,13 @@ func TestBGPUpdateMessage(t *testing.T) {
 			PathAttributeLength: 18,
 			PathAttributes: []PathAttribute{
 				PathAttribute{
-					Flags:  0x40,
+					Flags:  Transitive,
 					Code:   Origin,
 					Length: 1,
 					Data:   &OriginAttribute{Origin: IBGP},
 				},
 				PathAttribute{
-					Flags:  0x40,
+					Flags:  Transitive,
 					Code:   AsPath,
 					Length: 4,
 					Data: &[]AsPathAttribute{
@@ -107,7 +107,7 @@ func TestBGPUpdateMessage(t *testing.T) {
 					},
 				},
 				PathAttribute{
-					Flags:  0x40,
+					Flags:  Transitive,
 					Code:   Nexthop,
 					Length: 4,
 					Data:   &[]byte{0xc0, 0xa8, 0x56, 0x64},
@@ -146,13 +146,13 @@ func TestBGPComboPacket(t *testing.T) {
 			Marker: _16ByteMaker,
 			Type:   _Keepalive,
 			Length: 19,
-			Body:   Keepalive{},
+			Body:   &Keepalive{},
 		},
 		Message{
 			Marker: _16ByteMaker,
 			Type:   _Update,
 			Length: 98,
-			Body: Update{
+			Body: &Update{
 				WithdrawnLength:     0,
 				PathAttributeLength: 72,
 				PathAttributes: []PathAttribute{
@@ -160,13 +160,13 @@ func TestBGPComboPacket(t *testing.T) {
 						Flags:  Transitive,
 						Code:   Origin,
 						Length: 1,
-						Data:   OriginAttribute{Origin: INCOMPLETE},
+						Data:   &OriginAttribute{Origin: INCOMPLETE},
 					},
 					PathAttribute{
 						Flags:  Transitive,
 						Code:   AsPath,
 						Length: 10,
-						Data: []AsPathAttribute{
+						Data: &[]AsPathAttribute{
 							AsPathAttribute{Type: AsSet, Count: 2, List: []ASN{ASN(500), ASN(500)}},
 							AsPathAttribute{Type: AsSequence, Count: 1, List: []ASN{ASN(65211)}},
 						},
@@ -175,13 +175,13 @@ func TestBGPComboPacket(t *testing.T) {
 						Flags:  Transitive,
 						Code:   Nexthop,
 						Length: 4,
-						Data:   NexthopAttribute{Nexthop: []byte{0xc0, 0xa8, 0x00, 0x0f}},
+						Data:   &NexthopAttribute{Nexthop: []byte{0xc0, 0xa8, 0x00, 0x0f}},
 					},
 					PathAttribute{
 						Flags:  Transitive,
 						Code:   LocalPref,
 						Length: 4,
-						Data:   LocalPrefAttribute{LocalPref: 100},
+						Data:   &LocalPrefAttribute{LocalPref: 100},
 					},
 					PathAttribute{
 						Flags:  Transitive,
@@ -192,13 +192,13 @@ func TestBGPComboPacket(t *testing.T) {
 						Flags:  Transitive | Optional,
 						Code:   Aggregator,
 						Length: 6,
-						Data:   AggregatorAttribute{AS: 65210, Origin: []byte{0xc0, 0xa8, 0x00, 0x0a}},
+						Data:   &AggregatorAttribute{AS: 65210, Origin: []byte{0xc0, 0xa8, 0x00, 0x0a}},
 					},
 					PathAttribute{
 						Flags:  Transitive | Optional,
 						Code:   Community,
 						Length: 12,
-						Data: []CommunityAttribute{
+						Data: &[]CommunityAttribute{
 							CommunityAttribute{
 								Attribute: uint32((65215 << 16) | (1)),
 							},
@@ -214,13 +214,13 @@ func TestBGPComboPacket(t *testing.T) {
 						Flags:  Optional,
 						Code:   OriginatorID,
 						Length: 4,
-						Data:   []byte{0xc0, 0xa8, 0x00, 0x0f},
+						Data:   &[]byte{0xc0, 0xa8, 0x00, 0x0f},
 					},
 					PathAttribute{
 						Flags:  Optional,
 						Code:   ClusterList,
 						Length: 4,
-						Data:   []byte{0xc0, 0xa8, 0x00, 0xfa},
+						Data:   &[]byte{0xc0, 0xa8, 0x00, 0xfa},
 					},
 				},
 				NLRI: []PrefixSpec{

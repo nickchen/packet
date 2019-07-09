@@ -98,7 +98,7 @@ type AttributeFlag uint8
 
 const (
 	// ExtendedLength - attribute flag
-	ExtendedLength AttributeFlag = 1 << iota
+	ExtendedLength AttributeFlag = 0x10 << iota
 	// Partial - attribute flag
 	Partial
 	// Transitive - attribute flag
@@ -213,7 +213,11 @@ type ASN uint16
 type AsPathAttribute struct {
 	Type  AsPathType
 	Count uint8
-	List  []ASN `packet:"countfrom=Count"`
+	List  []ASN `packet:"lengthfor"`
+}
+
+func (a AsPathAttribute) LengthFor(fieldname string) uint64 {
+	return uint64(a.Count * 2)
 }
 
 func (f AttributeFlag) String() string {
@@ -230,7 +234,7 @@ func (f AttributeFlag) String() string {
 	if (f & ExtendedLength) != 0 {
 		s = append(s, "ExtendedLength")
 	}
-	return fmt.Sprintf("Flags(0x%x)", int(f)) + strings.Join(s, "|")
+	return strings.Join(s, "|")
 }
 
 // NexthopAttribute containers a nexthop
@@ -252,8 +256,6 @@ type AggregatorAttribute struct {
 // CommunityAttribute community BGP attribute
 type CommunityAttribute struct {
 	Attribute uint32
-	as        uint16
-	value     uint16
 }
 
 // InstanceFor interface implementation to provide struct for the body
@@ -263,6 +265,14 @@ func (p PathAttribute) InstanceFor(fieldname string) interface{} {
 		return &OriginAttribute{}
 	case AsPath:
 		return &[]AsPathAttribute{}
+	case Nexthop:
+		return &NexthopAttribute{}
+	case LocalPref:
+		return &LocalPrefAttribute{}
+	case Aggregator:
+		return &AggregatorAttribute{}
+	case Community:
+		return &[]CommunityAttribute{}
 	}
 	b := make([]byte, p.Length)
 	return &b
