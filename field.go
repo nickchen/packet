@@ -7,6 +7,14 @@ import (
 	"strings"
 )
 
+type ValueFields []*field
+
+var _structFields map[string]*ValueFields
+
+func init() {
+	_structFields = make(map[string]*ValueFields)
+}
+
 const tagName = "packet"
 
 type unit uint
@@ -33,7 +41,6 @@ type length struct {
 
 func (l *length) String() string {
 	return fmt.Sprintf("%d%s", l.length, l.unit)
-	//return string(l.length) + l.unit.String()
 }
 
 type when struct {
@@ -45,6 +52,7 @@ type when struct {
 type restFor struct {
 	field string
 }
+
 type field struct {
 	reflect.StructField
 	length     *length
@@ -55,6 +63,24 @@ type field struct {
 		lengthfor  bool
 		lengthrest bool
 	}
+}
+
+func getStructFields(v reflect.Value) *ValueFields {
+	if v.Kind() != reflect.Struct {
+		panic(fmt.Errorf("%s not a struct", v.Kind()))
+	}
+	vf, ok := _structFields[v.Type().Name()]
+
+	if !ok {
+		vf = &ValueFields{}
+		t := v.Type()
+		for i := 0; i < t.NumField(); i++ {
+			f := t.Field(i)
+			*vf = append(*vf, newField(f))
+		}
+		_structFields[v.Type().Name()] = vf
+	}
+	return vf
 }
 
 func newField(_f reflect.StructField) *field {

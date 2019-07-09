@@ -2,8 +2,9 @@ package packet
 
 import (
 	"fmt"
-	"testing"
 	"strconv"
+	"testing"
+
 	"github.com/stretchr/testify/assert"
 )
 
@@ -21,7 +22,7 @@ func Test_makeMask8(t *testing.T) {
 	}
 	lengthDiff := uint64(7 * 8)
 	for length, expected := range uint82mask {
-		v := makeMask(length + lengthDiff)
+		v := makeMask(uint(length + lengthDiff))
 		fmt.Printf("0x%s\n", strconv.FormatUint(v, 16))
 		vuint8 := uint8(v >> lengthDiff)
 		assert.Equal(t, expected, vuint8, fmt.Sprintf("unexpected mask for length %d", length))
@@ -49,7 +50,7 @@ func Test_makeMask16(t *testing.T) {
 	}
 	lengthDiff := uint64(6 * 8)
 	for length, expected := range uint162mask {
-		v := makeMask(length + lengthDiff)
+		v := makeMask(uint(length + lengthDiff))
 		vuint16 := uint16(v >> lengthDiff)
 
 		assert.Equal(t, expected, vuint16, fmt.Sprintf("unexpected mask for length %d", length))

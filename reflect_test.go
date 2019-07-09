@@ -10,7 +10,7 @@ import (
 
 // this is a collection of benchmark for refect Set*
 
-func setSingleValue(i *int) {
+func setSingleValueReflect(i *int) {
 	t := reflect.ValueOf(i)
 	if t.Kind() == reflect.Ptr {
 		v := t.Elem()
@@ -21,7 +21,7 @@ func setSingleValue(i *int) {
 func TestMarkUnmarshalSingle(test *testing.T) {
 	var i int
 
-	setSingleValue(&i)
+	setSingleValueReflect(&i)
 	assert.Equal(test, 10, i)
 }
 
@@ -29,17 +29,17 @@ func BenchmarkUnmarshalSingle(b *testing.B) {
 	var i int
 
 	for n := 0; n < b.N; n++ {
-		setSingleValue(&i)
+		setSingleValueReflect(&i)
 	}
 }
 
-type Obj struct {
+type ObjReflect struct {
 	A int
 	B uint
 	C string
 }
 
-func setObjValue(i *Obj) {
+func setObjValue(i *ObjReflect) {
 	t := reflect.ValueOf(i)
 	if t.Kind() == reflect.Ptr {
 		v := t.Elem()
@@ -59,22 +59,22 @@ func setObjValue(i *Obj) {
 	}
 }
 
-func TestUnmarshalObject(test *testing.T) {
-	o := &Obj{}
+func TestUnmarshalObjectReflect(test *testing.T) {
+	o := &ObjReflect{}
 
 	setObjValue(o)
-	assert.Equal(test, &Obj{10, 10, "10"}, o)
+	assert.Equal(test, &ObjReflect{10, 10, "10"}, o)
 }
 
-func BenchmarkUnmarshalObj(b *testing.B) {
+func BenchmarkUnmarshalObjReflect(b *testing.B) {
 
-	o := &Obj{}
+	o := &ObjReflect{}
 	for n := 0; n < b.N; n++ {
 		setObjValue(o)
 	}
 }
 
-type ObjWithBytesArray struct {
+type ObjReflectWithBytesArray struct {
 	A byte
 	B byte
 	C byte
@@ -118,45 +118,45 @@ func setObjWithBytesValue(o interface{}, data []byte) {
 
 }
 
-var objectWithBytes = []byte{0xfa, 0x16, 0x3e, 0x85, 0x92, 0x77, 0xfa, 0x16}
+var objectReflectWithBytes = []byte{0xfa, 0x16, 0x3e, 0x85, 0x92, 0x77, 0xfa, 0x16}
 
-func TestUnmarshalObjWithBytes(test *testing.T) {
+func TestReflectUnmarshalObjWithBytes(test *testing.T) {
 
-	o := &ObjWithBytesArray{}
-	setObjWithBytesValue(o, objectWithBytes)
+	o := &ObjReflectWithBytesArray{}
+	setObjWithBytesValue(o, objectReflectWithBytes)
 	assert.Equal(test, &ObjWithBytesArray{0xfa, 0x16, 0x3e, [5]byte{0x85, 0x92, 0x77, 0xfa, 0x16}}, o)
 }
 
-func BenchmarkUnmarshalObjWithBytes(b *testing.B) {
+func BenchmarkReflectUnmarshalObjWithBytes(b *testing.B) {
 
+	o := &ObjReflectWithBytesArray{}
+	for n := 0; n < b.N; n++ {
+		setObjWithBytesValue(o, []byte{0xfa, 0x16, 0x3e, 0x85, 0x92, 0x77, 0xfa, 0x16})
+	}
+}
+
+func BenchmarkReflectUnmarshalObjWithReader(b *testing.B) {
 	o := &ObjWithBytesArray{}
 	for n := 0; n < b.N; n++ {
 		setObjWithBytesValue(o, []byte{0xfa, 0x16, 0x3e, 0x85, 0x92, 0x77, 0xfa, 0x16})
 	}
 }
 
-func BenchmarkUnmarshalObjWithReader(b *testing.B) {
-	o := &ObjWithBytesArray{}
-	for n := 0; n < b.N; n++ {
-		setObjWithBytesValue(o, []byte{0xfa, 0x16, 0x3e, 0x85, 0x92, 0x77, 0xfa, 0x16})
-	}
-}
-
-type ObjWithBytesSlice struct {
+type ObjReflectWithBytesSlice struct {
 	A byte
 	B byte
 	C byte
 	D []byte
 }
 
-func TestUnmarshalObjWithBytesSlice(test *testing.T) {
+func TestReflectUnmarshalObjWithBytesSlice(test *testing.T) {
 
 	o := &ObjWithBytesSlice{}
-	setObjWithBytesValue(o, objectWithBytes)
+	setObjWithBytesValue(o, objectReflectWithBytes)
 	assert.Equal(test, &ObjWithBytesSlice{0xfa, 0x16, 0x3e, []byte{0x85, 0x92, 0x77, 0xfa, 0x16}}, o)
 }
 
-func BenchmarkUnmarshalObjWithBytesSlice(b *testing.B) {
+func BenchmarkReflectUnmarshalObjWithBytesSlice(b *testing.B) {
 
 	o := &ObjWithBytesSlice{}
 	for n := 0; n < b.N; n++ {
@@ -164,7 +164,7 @@ func BenchmarkUnmarshalObjWithBytesSlice(b *testing.B) {
 	}
 }
 
-func BenchmarkUnmarshalObjWithReaderSlice(b *testing.B) {
+func BenchmarkReflectUnmarshalObjWithReaderSlice(b *testing.B) {
 	o := &ObjWithBytesSlice{}
 	for n := 0; n < b.N; n++ {
 		setObjWithBytesValue(o, []byte{0xfa, 0x16, 0x3e, 0x85, 0x92, 0x77, 0xfa, 0x16})

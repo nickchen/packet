@@ -54,6 +54,8 @@ func TestFixture(t *testing.T) {
 	fmt.Printf("tcp %+v\n", tcp)
 
 	bgp, ok := tcp.Body.(*bgp.Message)
+	fmt.Printf("bgp %+v\n", bgp)
+
 	assert.True(t, ok, "failed to find BGP")
 	assert.NotNil(t, bgp, "bgp is null")
 }

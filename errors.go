@@ -40,11 +40,11 @@ func (e *UnmarshalTypeError) Error() string {
 // An UnmarshalBitfieldOverflowError describes a condition where bit reading overflows uint64 holder
 type UnmarshalBitfieldOverflowError struct {
 	Struct string
-	Field  *field
+	Field  reflect.StructField
 }
 
 func (e *UnmarshalBitfieldOverflowError) Error() string {
-	if e.Struct != "" || e.Field != nil {
+	if e.Struct != "" {
 		return "packet: cannot unmarshal " + e.Field.Name + " into Go struct field " + e.Struct + ", size over 64bits"
 	}
 	return "packet: cannot unmarshal into Go value of type " + e.Struct

@@ -6,312 +6,89 @@ import (
 	"reflect"
 )
 
-var _structFields map[string][]*field
-
-func init() {
-	_structFields = make(map[string][]*field)
-}
-
-// Unmarshal parson the packet data and stores the result in value pointed by v.
-// If v is nil or not a pointer, Unmarshal returns an InvalidUnmarshalError.
-func Unmarshal(data []byte, v interface{}) error {
-	c := &context{data: data}
-	c.ends.current = 0
-	c.ends.stack[c.ends.current] = uint64(len(data))
-	return c.decode(v)
-}
-
-// BodyStruct allow unmarshalling of packet body content, with an interface that provides subsequent type from current value
-type BodyStruct interface {
-	BodyStruct() interface{}
-}
-
-// LengthFor allow variable byte size for a field, this function should return the length in byte for the provided field
-type LengthFor interface {
-	LengthFor(fieldname string) uint64
-}
-
-const maxEnds = 16
-
-type context struct {
-	data    []byte
+type cursor struct {
 	start   uint64
+	end     uint64
 	current uint64
-	ends    struct {
-		current uint64
-		stack   [maxEnds]uint64
-	}
-	bits struct {
+}
+
+const _maxCursors = 16
+
+type decoder struct {
+	data     []byte
+	cursor   [_maxCursors]cursor
+	currentC int
+	bits     struct {
 		data   uint64
 		length uint64
 	}
 }
 
-func (c *context) end() uint64 {
-	return c.ends.stack[c.ends.current]
+// InstanceFor interface helps the unmarshaller to figure out the right type base on message data, by returning the object reference for the attribute in question
+type InstanceFor interface {
+	InstanceFor(fieldname string) interface{}
 }
 
-func (c *context) release() {
-	if c.ends.current > 0 {
-		c.ends.current--
-	} else {
-		panic(fmt.Errorf("release ends from zero"))
-	}
+// LengthFor interface helps the unmarshaller to figure out the right length for bytes
+type LengthFor interface {
+	LengthFor(fieldname string) uint64
 }
 
-// push a new end into the top, until it's released, use this end as data end
-func (c *context) push(end uint64) {
-	c.ends.current++
-	c.ends.stack[c.ends.current] = end
-}
-
-func (c *context) decode(v interface{}) error {
+// Unmarshal parson the packet data and stores the result in value pointed by v.
+// If v is nil or not a pointer, Unmarshal returns an InvalidUnmarshalError.
+func Unmarshal(data []byte, v interface{}) error {
+	d := &decoder{data: data, currentC: 0}
+	c := &d.cursor[d.currentC]
+	c.start = 0
+	c.current = 0
+	c.end = uint64(len(d.data))
 	rv := reflect.ValueOf(v)
 	if rv.Kind() != reflect.Ptr || rv.IsNil() {
 		return &UnmarshalPtrError{reflect.TypeOf(v)}
 	}
-	return c._ptr(rv)
+
+	return d._ptr(c, rv.Elem())
 }
 
-func (c *context) _ptr(v reflect.Value) error {
-	// XXX just here while debugging
-	if v.Kind() != reflect.Ptr {
-		return &UnmarshalPtrError{reflect.TypeOf(v)}
-	}
-
-	pv := v.Elem()
-	switch pv.Kind() {
-	case reflect.Ptr:
-		// double pointer
-		return c._ptr(pv)
-	case reflect.Slice, reflect.Array:
-		return c._array(pv)
+func (d *decoder) _ptr(c *cursor, v reflect.Value) error {
+	switch v.Kind() {
+	case reflect.Int8:
+		v.SetInt(int64(d.data[c.current]))
 	case reflect.Struct:
-		return c._struct(pv)
+		return d._struct(c, v)
 	}
-	return &UnmarshalTypeError{Value: "ptr", Type: pv.Type()}
+	return nil
 }
 
-func (c *context) getFields(v reflect.Type) []*field {
-	fs, ok := _structFields[v.Name()]
-	if !ok {
-		fs = make([]*field, 0)
-		for i := 0; i < v.NumField(); i++ {
-			f := v.Field(i)
-			fs = append(fs, newField(f))
+func (d *decoder) _struct(c *cursor, v reflect.Value) error {
+	vf := getStructFields(v)
+	for i := 0; i < len(*vf); i++ {
+		if err := d.setFieldValue(c, (*vf)[i], v, v.Field(i)); err != nil {
+			return err
 		}
-		_structFields[v.Name()] = fs
-		return fs
 	}
-	return fs
+	return nil
 }
 
-func (c *context) getBitsByLength(length uint64) (uint64, error) {
-	for c.bits.length < length {
-		c.bits.data <<= 8
-		c.bits.data |= uint64(c.data[c.current])
-		c.bits.length += 8
+func (d *decoder) getBitsByLength(c *cursor, length uint64) uint64 {
+	for d.bits.length < length {
+		d.bits.data <<= 8
+		d.bits.data |= uint64(d.data[c.current])
+		d.bits.length += 8
 		c.current++
 	}
-	mask := makeMask(c.bits.length)
-	value := mask & c.bits.data
-	value >>= (c.bits.length - length)
-	c.bits.length -= length
-	return value, nil
-}
-
-// setStructFieldValueFromLength set value from non-standard size, as denoted by size spec
-func (c *context) setStructFieldValueFromLength(v reflect.Value, parent reflect.Value, f *field) error {
-	switch f.length.unit {
-	case _bits:
-		if (f.length.length > c.bits.length) && (f.length.length+c.bits.length) > 64 {
-			return &UnmarshalBitfieldOverflowError{Field: f}
-		}
-		value, err := c.getBitsByLength(f.length.length)
-		if err != nil {
-			return err
-		}
-		switch v.Kind() {
-		case reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-			v.SetUint(value)
-		case reflect.Bool:
-			v.SetBool((0xfffffffffffffff1 & value) == 0x1)
-		}
-	case _byte:
-		if err := c.rangeCheck(parent, f, f.length.length); err != nil {
-			return err
-		}
-		v.SetBytes(c.data[c.current : c.current+f.length.length])
-		c.current += f.length.length
-	}
-	return nil
-}
-
-// getStructUnint get the uint64 attribute value for the current instance
-func (c *context) getStructUnint(parent reflect.Value, fieldname string) uint64 {
-	return parent.FieldByName(fieldname).Uint()
-}
-
-func (c *context) rangeCheck(parent reflect.Value, f *field, length uint64) error {
-	if (c.current + length) > c.end() {
-		return &UnmarshalUnexpectedEnd{Struct: parent.Type().Name(), Field: f.Name, Offset: int64(c.current), End: int64(c.end())}
-	}
-	return nil
-}
-
-func (c *context) setStructFieldValue(v reflect.Value, parent reflect.Value, f *field) error {
-	if f.length != nil {
-		return c.setStructFieldValueFromLength(v, parent, f)
-	}
-	if f.when != nil && !f.when.eval(parent) {
-		return nil
-	}
-	// primatives
-	switch v.Kind() {
-	case reflect.Bool:
-		value, err := c.getBitsByLength(1)
-		if err != nil {
-			return err
-		}
-		v.SetBool((0xfffffffffffffff1 & value) == 0x1)
-		return nil
-	case reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		var length uint64
-		if f.f.lengthfor {
-			if m, ok := parent.Interface().(LengthFor); ok {
-				length = m.LengthFor(f.Name)
-			} else {
-				return fmt.Errorf("no LengthFor function for struct %s", parent.Type().Name())
-			}
-		} else {
-			length = map[reflect.Kind]uint64{reflect.Uint8: 1, reflect.Uint16: 2, reflect.Uint32: 4, reflect.Uint64: 8}[v.Kind()]
-		}
-		if err := c.rangeCheck(parent, f, length); err != nil {
-			return err
-		}
-		var value uint64
-		switch length {
-		case 1:
-			value = uint64(c.data[c.current])
-		case 2:
-			value = uint64(binary.BigEndian.Uint16(c.data[c.current : c.current+length]))
-		case 4:
-			value = uint64(binary.BigEndian.Uint32(c.data[c.current : c.current+length]))
-		case 8:
-			value = uint64(binary.BigEndian.Uint64(c.data[c.current : c.current+length]))
-		}
-		v.SetUint(value)
-		c.current += length
-		return nil
-	}
-
-	if v.Kind() == reflect.Interface {
-		if f.Name == "Body" || f.Name == "Data" {
-			// get the next struct instance from the BodyStruct interface
-			if m, ok := parent.Interface().(BodyStruct); ok {
-				b := m.BodyStruct()
-				if b != nil {
-					bv := reflect.ValueOf(b)
-					// set body before the decoding process, so it should be returned along with error if any
-					v.Set(bv)
-					v = bv.Elem()
-				} else {
-					return fmt.Errorf("function BodyStruct returned nil for %s.%s", parent.Type().Name(), f.Name)
-				}
-			}
-		} else {
-			panic(fmt.Errorf("unhandled interface type %s.%s", parent.Type().Name(), f.Name))
-		}
-	}
-	// length is for data bytes
-	var length uint64
-	// count is for array size
-	var count uint64
-	switch {
-	case f.lengthfrom != "":
-		length = c.getStructUnint(parent, f.lengthfrom)
-	case f.f.lengthfor:
-		if m, ok := parent.Interface().(LengthFor); ok {
-			length = m.LengthFor(f.Name)
-		} else {
-			panic(fmt.Errorf("no LengthFor function for struct %s", parent.Type().Name()))
-		}
-	case f.f.lengthrest:
-		length = c.end() - c.current
-	case f.countfrom != "":
-		count = c.getStructUnint(parent, f.countfrom)
-	}
-
-	switch v.Kind() {
-	case reflect.Slice:
-		switch {
-		case length == 0 && count == 0:
-			return nil
-		case count != 0:
-			c.growSlice(v, 0, int(count))
-			// no length, use current the stack
-		case length != 0:
-			c.push(c.current + length)
-			defer c.release()
-		}
-		fallthrough
-	case reflect.Array:
-		return c._array(v)
-	case reflect.Struct:
-		return c._struct(v)
-	default:
-		panic(fmt.Errorf("unhandled type (%s) for field %s.%s", v, parent.Type().Name(), f.Name))
-	}
-}
-
-// _struct unmarshals the structure by setting the values base on type, special fields:
-//		Length - use to calculate the end for the current structure, required can be use with tag:
-//			     XXX to indicate the data field in which the length is for, as it is often done in packet formats
-// 		Body - interface place holder for the next layer, optional
-func (c *context) _struct(v reflect.Value) error {
-	valueFields := c.getFields(v.Type())
-	for i := 0; i < len(valueFields); i++ {
-		f := valueFields[i]
-		fv := v.Field(i)
-		err := c.setStructFieldValue(fv, v, f)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// element set value for array/slice element
-func (c *context) _element(v reflect.Value) error {
-	switch v.Kind() {
-	case reflect.Struct:
-		return c._struct(v)
-	case reflect.Uint8, reflect.Uint16:
-		length := map[reflect.Kind]uint64{reflect.Uint8: 1, reflect.Uint16: 2, reflect.Uint32: 4, reflect.Uint64: 8}[v.Kind()]
-		// bytes
-		var value uint64
-		switch length {
-		case 1:
-			value = uint64(c.data[c.current])
-		case 2:
-			value = uint64(binary.BigEndian.Uint16(c.data[c.current : c.current+length]))
-		case 4:
-			value = uint64(binary.BigEndian.Uint32(c.data[c.current : c.current+length]))
-		case 8:
-			value = uint64(binary.BigEndian.Uint64(c.data[c.current : c.current+length]))
-		}
-		v.SetUint(value)
-		c.current += length
-	default:
-		return &UnmarshalTypeError{Value: "element", Type: v.Type(), Offset: int64(c.current)}
-	}
-	return nil
+	mask := makeMask(uint(d.bits.length))
+	value := mask & d.bits.data
+	value >>= (d.bits.length - length)
+	d.bits.length -= length
+	return value
 }
 
 const sliceInitialCapacity = 8
 
-func (c *context) growSlice(v reflect.Value, i, newcap int) {
+func (d *decoder) growSlice(v reflect.Value, i, len int) {
 	if i >= v.Cap() {
+		newcap := len
 		if newcap == 0 {
 			newcap = v.Cap() + v.Cap()/2
 			if newcap < sliceInitialCapacity {
@@ -322,23 +99,166 @@ func (c *context) growSlice(v reflect.Value, i, newcap int) {
 		reflect.Copy(newv, v)
 		v.Set(newv)
 	}
-	if i >= v.Len() {
-		v.SetLen(i + 1)
-	}
 }
 
-// _array handles slices or arrays
-func (c *context) _array(v reflect.Value) error {
-	for i := 0; c.current < c.end() && c.current < uint64(len(c.data)); i++ {
-		if v.Kind() == reflect.Slice && i >= v.Len() {
-			c.growSlice(v, i, 0)
+func (d *decoder) setValue(c *cursor, f reflect.StructField, parent reflect.Value, v reflect.Value) error {
+	if c.current >= c.end {
+		return nil
+	}
+	length := uint64(0)
+	switch v.Kind() {
+	case reflect.Uint8:
+		length = 1
+	case reflect.Uint16:
+		length = 2
+	case reflect.Uint32:
+		length = 4
+	case reflect.Uint64:
+		length = 8
+	}
+	if (c.end - c.current) < length {
+		length = c.end - c.current
+	}
+	value := uint64(0)
+	switch length {
+	case 1:
+		value = uint64(d.data[c.current])
+	case 2:
+		value = uint64(binary.BigEndian.Uint16(d.data[c.current : c.current+length]))
+	case 4:
+		value = uint64(binary.BigEndian.Uint32(d.data[c.current : c.current+length]))
+	case 8:
+		value = binary.BigEndian.Uint64(d.data[c.current : c.current+length])
+	}
+	switch v.Kind() {
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		v.SetUint(value)
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		// not guarantee to read the length of bytes
+		length = uint64(v.Type().Bits() / 8)
+		ivalue, read := binary.Varint(d.data[c.current : c.current+length])
+		if read != int(length) {
+			panic(fmt.Errorf("trying to read %d bytes from data, but got %d instead", length, read))
 		}
-		if i >= v.Cap() {
-			break
+		v.SetInt(ivalue)
+	case reflect.Slice:
+		// no need to grow if end is here
+		d.growSlice(v, 0, 0)
+		fallthrough
+	case reflect.Array:
+		for j := 0; j <= v.Cap() && c.current < c.end; j++ {
+			if v.Kind() == reflect.Slice {
+				if j >= v.Cap() {
+					// Set the len
+					d.growSlice(v, j, 0)
+				}
+				if j >= v.Len() {
+					v.SetLen(j + 1)
+				}
+			} else if j >= v.Cap() {
+				break
+			}
+			fv := v.Index(j)
+			if err := d.setValue(c, f, parent, fv); err != nil {
+				return err
+			}
 		}
-		if err := c._element(v.Index(i)); err != nil {
-			return err
+	case reflect.Struct:
+		return d._struct(c, v)
+	case reflect.Ptr:
+		// get underlying pointer type, and instantiate a new instance, set it as value, then use it as struct
+		pv := reflect.New(v.Type().Elem())
+		v.Set(pv)
+		return d.setValue(c, f, parent, pv.Elem())
+	case reflect.Interface:
+		if m, ok := parent.Interface().(InstanceFor); ok {
+			i := m.InstanceFor(f.Name)
+			if i != nil {
+				iv := reflect.ValueOf(i)
+				// set body before the decoding process, so it should be returned along with error if any
+				v.Set(iv)
+				return d.setValue(c, f, parent, iv.Elem())
+			}
+			return fmt.Errorf("InstanceFor returned nil for %s.%s", parent.Type().Name(), f.Name)
 		}
+		return fmt.Errorf("no valid InstanceFor returned for %s.%s %v", parent.Type().Name(), f.Name, v)
+	case reflect.Bool:
+		return d.setBitFieldValue(c, f, _bits, 1, parent, v)
+	default:
+		panic(fmt.Errorf("unhandled type %s.%s %+v", parent.Type().Name(), v.Type(), v))
+	}
+	c.current += length
+	return nil
+}
+
+func (d *decoder) setBitFieldValue(c *cursor, f reflect.StructField, u unit, length uint64, parent reflect.Value, v reflect.Value) error {
+	switch u {
+	case _bits:
+		if (length + d.bits.length) > 64 {
+			return &UnmarshalBitfieldOverflowError{Field: f}
+		}
+		value := d.getBitsByLength(c, length)
+		switch v.Kind() {
+		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+			v.SetUint(value)
+		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+			v.SetInt(int64(value))
+		case reflect.Bool:
+			v.SetBool((0xfffffffffffffff1 & value) == 0x1)
+		}
+	case _byte:
+		switch v.Kind() {
+		case reflect.Uint, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+			value, read := binary.Uvarint(d.data[c.current : c.current+length])
+			if read != int(length) {
+				panic(fmt.Errorf("trying to read %d bytes from data, but got %d instead", length, read))
+			}
+			v.SetUint(value)
+		case reflect.Int, reflect.Int16, reflect.Int32, reflect.Int64:
+			value, read := binary.Varint(d.data[c.current : c.current+length])
+			if read != int(length) {
+				panic(fmt.Errorf("trying to read %d bytes from data, but got %d instead", length, read))
+			}
+			v.SetInt(value)
+		case reflect.String:
+			v.SetString(string(d.data[c.current : c.current+length]))
+		case reflect.Slice:
+			d.growSlice(v, 0, int(length))
+			v.SetLen(int(length))
+			fallthrough
+		case reflect.Array:
+			// when type is really array, the byte length specifier is redundant
+			for j := 0; j < v.Cap(); j++ {
+				fv := v.Index(j)
+				// will panic if fv.Kind() is not uint8
+				// we are expecting byte spec to be used with bytes
+				fv.SetUint(uint64(d.data[int(c.current)+j]))
+			}
+		}
+		c.current += length
 	}
 	return nil
+}
+
+func (d *decoder) setFieldValue(c *cursor, f *field, parent reflect.Value, v reflect.Value) error {
+	newc := c
+	switch {
+	case f.length != nil:
+		return d.setBitFieldValue(c, f.StructField, f.length.unit, f.length.length, parent, v)
+	case f.f.lengthfor:
+		if m, ok := parent.Interface().(LengthFor); ok {
+			length := m.LengthFor(f.Name)
+			newc = &cursor{start: c.current, end: c.current + length, current: c.current}
+			if newc.end > c.end {
+				return nil
+			}
+		}
+		fallthrough
+	default:
+		err := d.setValue(newc, f.StructField, parent, v)
+		if newc != c {
+			c.current += (newc.current - newc.start)
+		}
+		return err
+	}
 }

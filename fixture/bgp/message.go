@@ -40,8 +40,8 @@ func (t MessageType) String() string {
 	return fmt.Sprintf("Unknown(MessageType=%d)", int(t))
 }
 
-// BodyStruct interface implementation to provide struct for the body
-func (bgp Message) BodyStruct() interface{} {
+// InstanceFor interface implementation to provide struct for the body
+func (bgp Message) InstanceFor(fieldname string) interface{} {
 	switch bgp.Type {
 	case _Open:
 		return &Open{}
@@ -52,7 +52,6 @@ func (bgp Message) BodyStruct() interface{} {
 	case _Keepalive:
 		return &Keepalive{}
 	}
-	fmt.Printf("BGP: %+v\n", bgp)
 	return nil
 }
 
@@ -63,7 +62,11 @@ type Open struct {
 	Holdtime       uint16
 	RouterID       uint32
 	OptionalLength uint8
-	Optional       []OptionalParameter
+	Optional       []OptionalParameter `packet:"lengthfor"`
+}
+
+func (o Open) LengthFor(fieldname string) uint64 {
+	return 0
 }
 
 // OptionalParameter defines the optional parameter in BGP OPEN message as per https://tools.ietf.org/html/rfc4271#section-4.2
@@ -82,15 +85,11 @@ type PrefixSpec struct {
 
 // LengthFor to return the byte length of Length value, which depends on Flags
 func (p PrefixSpec) LengthFor(fieldname string) uint64 {
-	switch fieldname {
-	case "Prefix":
-		l := uint64(p.Length / 8)
-		if p.Length%8 != 0 {
-			l++
-		}
-		return l
+	l := uint64(p.Length / 8)
+	if p.Length%8 != 0 {
+		l++
 	}
-	return 0
+	return l
 }
 
 // AttributeFlag flags for Path Attributes
@@ -164,7 +163,7 @@ type PathAttribute struct {
 	Flags  AttributeFlag
 	Code   AttributeType
 	Length uint16      `packet:"lengthfor"`
-	Data   interface{} `packet:"lengthfrom=Length"`
+	Data   interface{} `packet:"lengthfor"`
 }
 
 // OriginCode origin code
@@ -233,8 +232,8 @@ func (f AttributeFlag) String() string {
 	return strings.Join(s, "|")
 }
 
-// BodyStruct interface implementation to provide struct for the body
-func (p PathAttribute) BodyStruct() interface{} {
+// InstanceFor interface implementation to provide struct for the body
+func (p PathAttribute) InstanceFor(fieldname string) interface{} {
 	switch p.Code {
 	case Origin:
 		return &OriginAttribute{}
@@ -253,6 +252,8 @@ func (p PathAttribute) LengthFor(fieldname string) uint64 {
 			return 2
 		}
 		return 1
+	case "Data":
+		return uint64(p.Length)
 	}
 	return 0
 }
@@ -260,10 +261,21 @@ func (p PathAttribute) LengthFor(fieldname string) uint64 {
 // Update message struct as defined in https://tools.ietf.org/html/rfc4271#section-4.3
 type Update struct {
 	WithdrawnLength     uint16
-	WithdrawnRoutes     []PrefixSpec `packet:"lengthfrom=WithdrawnLength"`
+	WithdrawnRoutes     []PrefixSpec `packet:"lengthfor"`
 	PathAttributeLength uint16
-	PathAttributes      []PathAttribute `packet:"lengthfrom=PathAttributeLength"`
+	PathAttributes      []PathAttribute `packet:"lengthfor"`
 	NLRI                []PrefixSpec    `packet:"lengthrest"`
+}
+
+// LengthFor
+func (u Update) LengthFor(fieldname string) uint64 {
+	switch fieldname {
+	case "WithdrawnRoutes":
+		return uint64(u.WithdrawnLength)
+	case "PathAttributes":
+		return uint64(u.PathAttributeLength)
+	}
+	return 0
 }
 
 // ErrorType BGP error message type as defined in https://tools.ietf.org/html/rfc4271#section-4.5

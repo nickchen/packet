@@ -64,13 +64,13 @@ func bodyStructEtherType(t EtherType) interface{} {
 	return nil
 }
 
-// BodyStruct return the Body struct pointer for conversion
-func (e EthernetII) BodyStruct() interface{} {
+// InstanceFor return the Body struct pointer for conversion
+func (e EthernetII) InstanceFor(fieldname string) interface{} {
 	return bodyStructEtherType(e.Type)
 }
 
-// BodyStruct return the Body struct pointer for conversion
-func (v VLAN) BodyStruct() interface{} {
+// InstanceFor return the Body struct pointer for conversion
+func (v VLAN) InstanceFor(fieldname string) interface{} {
 	return bodyStructEtherType(v.Type)
 }
 
@@ -137,8 +137,28 @@ type IPv4 struct {
 	Checksum       Checksum
 	Source         net.IP `packet:"length=4B"`
 	Dest           net.IP `packet:"length=4B"`
-	Options        []byte `packet:"when=IHL-gt-5"`
+	Options        []byte `packet:"lengthfor"`
 	Body           interface{}
+}
+
+// InstanceFor returns the Body struct pointer for conversion
+func (ip IPv4) InstanceFor(fieldname string) interface{} {
+	switch ip.Protocol {
+	case _TCP:
+		return &TCP{}
+	case _UDP:
+	}
+	// panic(fmt.Errorf("unhandle protocol (%s)", ip.Protocol))
+	return nil
+}
+
+// LengthFor returns the length in bytes for the provided field
+func (ip IPv4) LengthFor(fieldname string) uint64 {
+	switch fieldname {
+	case "Options":
+		return uint64((32*ip.IHL - 32*5) / 8)
+	}
+	return 0
 }
 
 // Port alias for uint16, so we can use it with constants
@@ -211,19 +231,8 @@ type TCP struct {
 	Body          interface{}
 }
 
-// UnmarshalBody return the Body struct pointer for conversion
-func (ip IPv4) BodyStruct() interface{} {
-	switch ip.Protocol {
-	case _TCP:
-		return &TCP{}
-	case _UDP:
-	}
-	// panic(fmt.Errorf("unhandle protocol (%s)", ip.Protocol))
-	return nil
-}
-
-// BodyStruct return the Body struct pointer for conversion
-func (tcp TCP) BodyStruct() interface{} {
+// InstanceFor return the Body struct pointer for conversion
+func (tcp TCP) InstanceFor(fieldname string) interface{} {
 	switch tcp.Dest {
 	case _BGP:
 		return &bgp.Message{}
@@ -232,7 +241,6 @@ func (tcp TCP) BodyStruct() interface{} {
 }
 
 // LengthFor
-
 func (tcp TCP) LengthFor(fieldname string) uint64 {
 	switch fieldname {
 	case "Options":
