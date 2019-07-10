@@ -207,3 +207,27 @@ func BenchmarkUnmarshalObjWithSlice(b *testing.B) {
 		Unmarshal(bytesWithArrayNested, o)
 	}
 }
+
+func TestMarhshalByte(test *testing.T) {
+	b, err := Marshal(uint8(100))
+	assert.NoError(test, err, "marshall successfully")
+	assert.Equal(test, []byte{0x64}, b, "marshall correctly")
+}
+
+func TestMarhshalUint16(test *testing.T) {
+	b, err := Marshal(uint16(100))
+	assert.NoError(test, err, "marshall successfully")
+	assert.Equal(test, []byte{0x0, 0x64}, b, "marshall correctly")
+}
+
+func TestMarhshalUint32(test *testing.T) {
+	b, err := Marshal(uint32(100))
+	assert.NoError(test, err, "marshall successfully")
+	assert.Equal(test, []byte{0x0, 0x0, 0x0, 0x64}, b, "marshall correctly")
+}
+
+func TestMarhshalUint64(test *testing.T) {
+	b, err := Marshal(uint64(100))
+	assert.NoError(test, err, "marshall successfully")
+	assert.Equal(test, []byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x64}, b, "marshall correctly")
+}
