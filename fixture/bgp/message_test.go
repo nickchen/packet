@@ -79,6 +79,7 @@ func TestBGPKeepaliveMessage(t *testing.T) {
 		Marker: _16ByteMaker,
 		Type:   _Keepalive,
 		Length: 19,
+		Body:   &Keepalive{},
 	}
 	checkBGP(t, want, testBGPKeepaliveMessage, _Keepalive)
 }

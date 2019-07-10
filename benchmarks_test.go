@@ -70,6 +70,31 @@ func BenchmarkUnmarshalObjWithBytes(b *testing.B) {
 	}
 }
 
+type ObjWithBytesArrayUnexported struct {
+	A  byte
+	b  byte
+	BB byte
+	C  byte
+	D  [5]byte
+	e  byte
+	f  byte
+}
+
+func TestUnmarshalObjWithBytesUnexported(test *testing.T) {
+
+	o := &ObjWithBytesArrayUnexported{}
+	Unmarshal(bytesWithArray, o)
+	assert.Equal(test, &ObjWithBytesArrayUnexported{A: 0xfa, BB: 0x16, C: 0x3e, D: [5]byte{0x85, 0x92, 0x77, 0xfa, 0x16}}, o)
+}
+
+func BenchmarkUnmarshalObjWithBytesUnexported(b *testing.B) {
+
+	o := &ObjWithBytesArray{}
+	for n := 0; n < b.N; n++ {
+		Unmarshal(bytesWithArray, o)
+	}
+}
+
 func BenchmarkUnmarshalObjWithReader(b *testing.B) {
 	o := &ObjWithBytesArray{}
 	for n := 0; n < b.N; n++ {

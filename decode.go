@@ -56,11 +56,11 @@ func (d *decoder) _ptr(c *cursor, v reflect.Value) error {
 		v.SetInt(int64(d.data[c.current]))
 	case reflect.Struct:
 		return d._struct(c, v)
-	case reflect.Array, reflect.Slice:
-		if v.Kind() == reflect.Slice {
-			// grow initial slice
-			d.growSlice(v, 0, 0)
-		}
+	case reflect.Slice:
+		// grow initial slice
+		d.growSlice(v, 0, 0)
+		fallthrough
+	case reflect.Array:
 		for j := 0; j <= v.Cap() && c.current < c.end; j++ {
 			if v.Kind() == reflect.Slice {
 				if j >= v.Cap() {
@@ -272,12 +272,16 @@ func (d *decoder) setBitFieldValue(c *cursor, f reflect.StructField, u unit, len
 }
 
 func (d *decoder) setFieldValue(c *cursor, f *field, parent reflect.Value, v reflect.Value) error {
+	if !v.CanSet() {
+		// unexported fields
+		return nil
+	}
 	newc := c
 	switch {
 	case f.length != nil:
 		return d.setBitFieldValue(c, f.StructField, f.length.unit, f.length.length, parent, v)
 	case f.f.lengthfor:
-		// call length for interface
+		// call LengthFor interface to figure out the length
 		if m, ok := parent.Interface().(LengthFor); ok {
 			length := m.LengthFor(f.Name)
 			newc = &cursor{start: c.current, end: c.current + length, current: c.current}
