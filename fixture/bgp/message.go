@@ -14,7 +14,7 @@ type Message struct {
 	Marker [16]byte
 	Length uint16
 	Type   MessageType
-	Body   interface{}
+	Body   interface{} `packet:"lengthfor"`
 }
 
 // MessageType type of BGP message
@@ -56,6 +56,14 @@ func (bgp Message) InstanceFor(fieldname string) interface{} {
 	return nil
 }
 
+// HeaderSize the header size of BGP messages
+const HeaderSize = 19
+
+// LengthFor implementation of the LengthFor interface, which returns length in bytes for the provided field. This returns the length of next message in number of bytes.
+func (bgp Message) LengthFor(fieldname string) uint64 {
+	return uint64(bgp.Length - HeaderSize)
+}
+
 // Open message of BGP
 type Open struct {
 	Version        uint8
@@ -66,6 +74,7 @@ type Open struct {
 	Optional       []OptionalParameter `packet:"lengthfor"`
 }
 
+// LengthFor implementation of the LengthFor interface, which returns length in bytes for the provided field
 func (o Open) LengthFor(fieldname string) uint64 {
 	return 0
 }
@@ -84,7 +93,8 @@ type PrefixSpec struct {
 	Prefix []byte `packet:"lengthfor"`
 }
 
-// LengthFor to return the byte length of Length value, which depends on Flags
+// LengthFor implementation of the LengthFor interface, which returns length in bytes for the provided field.
+// Length of Prefix is for number of bits.
 func (p PrefixSpec) LengthFor(fieldname string) uint64 {
 	l := uint64(p.Length / 8)
 	if p.Length%8 != 0 {
@@ -216,6 +226,7 @@ type AsPathAttribute struct {
 	List  []ASN `packet:"lengthfor"`
 }
 
+// LengthFor implementation of the LengthFor interface, which returns length in bytes for the provided field
 func (a AsPathAttribute) LengthFor(fieldname string) uint64 {
 	return uint64(a.Count * 2)
 }
@@ -273,12 +284,14 @@ func (p PathAttribute) InstanceFor(fieldname string) interface{} {
 		return &AggregatorAttribute{}
 	case Community:
 		return &[]CommunityAttribute{}
+	case AtomicAggregate:
+		return nil
 	}
 	b := make([]byte, p.Length)
 	return &b
 }
 
-// LengthFor to return the byte length of Length value, which depends on Flags
+// LengthFor implementation of the LengthFor interface, which returns length in bytes for the provided field
 func (p PathAttribute) LengthFor(fieldname string) uint64 {
 	switch fieldname {
 	case "Length":
@@ -301,7 +314,7 @@ type Update struct {
 	NLRI                []PrefixSpec    `packet:"lengthrest"`
 }
 
-// LengthFor
+// LengthFor implementation of the LengthFor interface, which returns length in bytes for the provided field.
 func (u Update) LengthFor(fieldname string) uint64 {
 	switch fieldname {
 	case "WithdrawnRoutes":

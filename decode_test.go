@@ -100,6 +100,8 @@ func IPPacketEqual(t *testing.T, ip *fixture.IPv4, gp *layers.IPv4) bool {
 /*
 Running tool: /usr/local/go/bin/go test -benchmem -run=^$ github.com/nickchen/packet -bench ^(BenchmarkGoPacket)$
 
+for Etherframe -> VLAN -> IP -> TCP
+
 goos: darwin
 goarch: amd64
 pkg: github.com/nickchen/packet

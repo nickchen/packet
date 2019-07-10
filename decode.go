@@ -155,7 +155,7 @@ func (d *decoder) setUintValue(c *cursor, f reflect.StructField, parent reflect.
 }
 
 func (d *decoder) setValue(c *cursor, f reflect.StructField, parent reflect.Value, v reflect.Value) error {
-	if c.current >= c.end {
+	if c.current >= c.end && v.Kind() != reflect.Interface {
 		return nil
 	}
 	switch v.Kind() {
@@ -211,7 +211,7 @@ func (d *decoder) setValue(c *cursor, f reflect.StructField, parent reflect.Valu
 				v.Set(iv)
 				return d.setValue(c, f, parent, iv.Elem())
 			}
-			return fmt.Errorf("InstanceFor returned nil for %s.%s", parent.Type().Name(), f.Name)
+			return nil
 		}
 		return fmt.Errorf("no valid InstanceFor returned for %s.%s %v", parent.Type().Name(), f.Name, v)
 	case reflect.Bool:
@@ -282,7 +282,7 @@ func (d *decoder) setFieldValue(c *cursor, f *field, parent reflect.Value, v ref
 			length := m.LengthFor(f.Name)
 			newc = &cursor{start: c.current, end: c.current + length, current: c.current}
 			// if length is zero or the new boundry is after previous end
-			if newc.end > c.end || newc.end == newc.current {
+			if newc.end > c.end {
 				return nil
 			}
 		}
