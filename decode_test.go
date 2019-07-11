@@ -118,20 +118,7 @@ func BenchmarkGoPacket(b *testing.B) {
 	}
 }
 
-/*
-for Etherframe -> VLAN -> IP -> TCP -> BGP -> Open
-Running tool: /usr/local/go/bin/go test -benchmem -run=^$ github.com/nickchen/packet -bench ^(BenchmarkPacket)$
-
-goos: darwin
-goarch: amd64
-pkg: github.com/nickchen/packet
-BenchmarkPacket-12    	 1000000	      2168 ns/op	     624 B/op	      12 allocs/op
-BenchmarkPacket-12    	 1000000	      1946 ns/op	     592 B/op	      12 allocs/op
-BenchmarkPacket-16    	  300000	      4609 ns/op	     784 B/op	      17 allocs/op
-PASS
-ok  	github.com/nickchen/packet	2.742s
-Success: Benchmarks passed.
-*/
+/* for Etherframe -> VLAN -> IP -> TCP -> BGP -> Open ... 23 allocs */
 func BenchmarkPacket(b *testing.B) {
 	b.ReportAllocs()
 	ether := &fixture.EthernetII{}

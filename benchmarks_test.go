@@ -24,17 +24,19 @@ func BenchmarkUnmarshalSinglePacket(b *testing.B) {
 }
 
 type Obj struct {
-	A int    `packet:"length=1B"`
-	B uint   `packet:"length=1B"`
+	A int8   `packet:"length=1B"`
+	B uint8  `packet:"length=1B"`
 	C string `packet:"length=1B"`
-	D uint   `packet:"length=1b"`
-	E uint   `packet:"length=7b"`
+	D uint8  `packet:"length=1b"`
+	E uint8  `packet:"length=7b"`
 }
+
+var bytesForObj = []byte{0xa, 0xa, 0x61, 0xff}
 
 func TestUnmarshalObject(test *testing.T) {
 	o := &Obj{}
 
-	Unmarshal([]byte{0xa, 0xa, 0x61, 0xFF}, o)
+	Unmarshal(bytesForObj, o)
 	assert.Equal(test, &Obj{5, 10, "a", 0x1, 0x7f}, o)
 }
 
@@ -42,7 +44,7 @@ func BenchmarkUnmarshalObj(b *testing.B) {
 
 	o := &Obj{}
 	for n := 0; n < b.N; n++ {
-		Unmarshal([]byte{0xa, 0xa, 0x61, 0xff}, o)
+		Unmarshal(bytesForObj, o)
 	}
 }
 
@@ -230,4 +232,16 @@ func TestMarhshalUint64(test *testing.T) {
 	b, err := Marshal(uint64(100))
 	assert.NoError(test, err, "marshall successfully")
 	assert.Equal(test, []byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x64}, b, "marshall correctly")
+}
+
+func TestMarhshalObj(test *testing.T) {
+	b, err := Marshal(&Obj{5, 10, "a", 0x1, 0x7f})
+	assert.NoError(test, err, "marshall successfully")
+	assert.Equal(test, bytesForObj, b, "marshall correctly")
+}
+
+func BenchmarkMarhshalObj(b *testing.B) {
+	for n := 0; n < b.N; n++ {
+		_, _ = Marshal(&Obj{5, 10, "a", 0x1, 0x7f})
+	}
 }

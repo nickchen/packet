@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"reflect"
+	"sync"
 )
 
 type cursor struct {
@@ -239,13 +240,13 @@ func (d *decoder) setBitFieldValue(c *cursor, f reflect.StructField, u unit, len
 		}
 	case _byte:
 		switch v.Kind() {
-		case reflect.Uint, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
 			value, read := binary.Uvarint(d.data[c.current : c.current+length])
 			if read != int(length) {
 				panic(fmt.Errorf("trying to read %d bytes from data, but got %d instead", length, read))
 			}
 			v.SetUint(value)
-		case reflect.Int, reflect.Int16, reflect.Int32, reflect.Int64:
+		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 			value, read := binary.Varint(d.data[c.current : c.current+length])
 			if read != int(length) {
 				panic(fmt.Errorf("trying to read %d bytes from data, but got %d instead", length, read))
@@ -271,6 +272,15 @@ func (d *decoder) setBitFieldValue(c *cursor, f reflect.StructField, u unit, len
 	return nil
 }
 
+var _cursorPool = sync.Pool{
+	New: func() interface{} {
+		// The Pool's New function should generally only return pointer
+		// types, since a pointer can be put into the return interface
+		// value without an allocation:
+		return new(cursor)
+	},
+}
+
 func (d *decoder) setFieldValue(c *cursor, f *field, parent reflect.Value, v reflect.Value) error {
 	if !v.CanSet() {
 		// unexported fields
@@ -284,9 +294,14 @@ func (d *decoder) setFieldValue(c *cursor, f *field, parent reflect.Value, v ref
 		// call LengthFor interface to figure out the length
 		if m, ok := parent.Interface().(LengthFor); ok {
 			length := m.LengthFor(f.Name)
-			newc = &cursor{start: c.current, end: c.current + length, current: c.current}
+			// cursor put a boundry for number of bytes to decode
+			newc = _cursorPool.Get().(*cursor)
+			// newc = &cursor{start: c.current, end: c.current + length, current: c.current}
+			newc.start, newc.end, newc.current = c.current, c.current+length, c.current
+
 			// if length is zero or the new boundry is after previous end
 			if newc.end > c.end {
+				_cursorPool.Put(newc)
 				return nil
 			}
 		}
@@ -295,6 +310,7 @@ func (d *decoder) setFieldValue(c *cursor, f *field, parent reflect.Value, v ref
 		err := d.setValue(newc, f.StructField, parent, v)
 		if newc != c {
 			c.current += (newc.current - newc.start)
+			_cursorPool.Put(newc)
 		}
 		return err
 	}
