@@ -24,20 +24,21 @@ func BenchmarkUnmarshalSinglePacket(b *testing.B) {
 }
 
 type Obj struct {
-	A int8   `packet:"length=1B"`
+	A uint8  `packet:"length=1B"`
 	B uint8  `packet:"length=1B"`
 	C string `packet:"length=1B"`
 	D uint8  `packet:"length=1b"`
 	E uint8  `packet:"length=7b"`
 }
 
-var bytesForObj = []byte{0xa, 0xa, 0x61, 0xff}
+var bytesForObj = []byte{0xa, 0xb, 0x61, 0xff}
+var obj = &Obj{10, 11, "a", 0x1, 0x7f}
 
 func TestUnmarshalObject(test *testing.T) {
 	o := &Obj{}
 
 	Unmarshal(bytesForObj, o)
-	assert.Equal(test, &Obj{5, 10, "a", 0x1, 0x7f}, o)
+	assert.Equal(test, obj, o)
 }
 
 func BenchmarkUnmarshalObj(b *testing.B) {
@@ -190,17 +191,18 @@ type ObjWithNestedSlice struct {
 	A *[]ObjWithBytesArray
 }
 
+var objWithNestedSlice = &ObjWithNestedSlice{
+	A: &[]ObjWithBytesArray{
+		ObjWithBytesArray{0xfa, 0x16, 0x3e, [5]byte{0x85, 0x92, 0x77, 0xfa, 0x16}},
+		ObjWithBytesArray{0xfa, 0x16, 0x3e, [5]byte{0x85, 0x92, 0x77, 0xfa, 0x17}},
+		ObjWithBytesArray{0xfa, 0x16, 0x3e, [5]byte{0x85, 0x92, 0x77, 0xfa, 0x18}},
+	}}
+
 func TestUnmarshalObjWithSlice(test *testing.T) {
 
 	o := &ObjWithNestedSlice{}
 	assert.NoError(test, Unmarshal(bytesWithArrayNested, o))
-	assert.Equal(test,
-		&ObjWithNestedSlice{
-			A: &[]ObjWithBytesArray{
-				ObjWithBytesArray{0xfa, 0x16, 0x3e, [5]byte{0x85, 0x92, 0x77, 0xfa, 0x16}},
-				ObjWithBytesArray{0xfa, 0x16, 0x3e, [5]byte{0x85, 0x92, 0x77, 0xfa, 0x17}},
-				ObjWithBytesArray{0xfa, 0x16, 0x3e, [5]byte{0x85, 0x92, 0x77, 0xfa, 0x18}},
-			}}, o)
+	assert.Equal(test, objWithNestedSlice, o)
 }
 
 func BenchmarkUnmarshalObjWithSlice(b *testing.B) {
@@ -235,13 +237,25 @@ func TestMarhshalUint64(test *testing.T) {
 }
 
 func TestMarhshalObj(test *testing.T) {
-	b, err := Marshal(&Obj{5, 10, "a", 0x1, 0x7f})
+	b, err := Marshal(obj)
 	assert.NoError(test, err, "marshall successfully")
 	assert.Equal(test, bytesForObj, b, "marshall correctly")
 }
 
 func BenchmarkMarhshalObj(b *testing.B) {
 	for n := 0; n < b.N; n++ {
-		_, _ = Marshal(&Obj{5, 10, "a", 0x1, 0x7f})
+		_, _ = Marshal(obj)
+	}
+}
+
+func TestMarhshalObjWithNestedSlice(test *testing.T) {
+	b, err := Marshal(objWithNestedSlice)
+	assert.NoError(test, err, "marshall successfully")
+	assert.Equal(test, bytesWithArrayNested, b, "marshall correctly")
+}
+
+func BenchmarkMarhshalObjWithNestedSlice(b *testing.B) {
+	for n := 0; n < b.N; n++ {
+		_, _ = Marshal(objWithNestedSlice)
 	}
 }
