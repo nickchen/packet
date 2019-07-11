@@ -57,6 +57,8 @@ func (e *encoder) writeBits() error {
 		e.scratch[e.current] = uint8(e.bits.data >> (e.bits.length - 8))
 		e.current++
 	}
+	e.Write(e.scratch[0:e.current])
+	e.current = 0
 	return nil
 }
 

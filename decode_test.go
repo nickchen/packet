@@ -2,6 +2,7 @@ package packet
 
 import (
 	"fmt"
+	"os"
 	"testing"
 
 	"github.com/nickchen/packet/fixture"
@@ -128,27 +129,31 @@ func BenchmarkPacket(b *testing.B) {
 }
 
 func TestReadPCAP(t *testing.T) {
-	pcap, err := fixture.OpenPCAP("fixture/NTLM-wenchao.pcap")
-	assert.NoError(t, err, "failed to open pcap")
-	if err == nil {
-		count := 0
-		for p := range pcap.PacketData() {
-			fmt.Printf("=====\n")
-			ether := &fixture.EthernetII{}
+	pcapFile := "fixture/NTLM-wenchao.pcap"
+	if _, err := os.Stat(pcapFile); !os.IsNotExist(err) {
 
-			err = Unmarshal(p, ether)
-			assert.NoError(t, err, "failed to decode")
-			fmt.Printf("Packet: %+v\n", ether)
-			ip, _ := ether.Body.(*fixture.IPv4)
-			assert.NotNil(t, ip, "ether->ip")
-			fmt.Printf("IP: %+v\n", ip)
+		pcap, err := fixture.OpenPCAP(pcapFile)
+		assert.NoError(t, err, "failed to open pcap")
+		if err == nil {
+			count := 0
+			for p := range pcap.PacketData() {
+				fmt.Printf("=====\n")
+				ether := &fixture.EthernetII{}
 
-			tcp, _ := ip.Body.(*fixture.TCP)
-			assert.NotNil(t, tcp, "ip->tcp")
-			fmt.Printf("TCP: %s\n", string(tcp.Body.([]byte)))
-			count++
-			if count >= 5 {
-				break
+				err = Unmarshal(p, ether)
+				assert.NoError(t, err, "failed to decode")
+				fmt.Printf("Packet: %+v\n", ether)
+				ip, _ := ether.Body.(*fixture.IPv4)
+				assert.NotNil(t, ip, "ether->ip")
+				fmt.Printf("IP: %+v\n", ip)
+
+				tcp, _ := ip.Body.(*fixture.TCP)
+				assert.NotNil(t, tcp, "ip->tcp")
+				fmt.Printf("TCP: %s\n", string(tcp.Body.([]byte)))
+				count++
+				if count >= 5 {
+					break
+				}
 			}
 		}
 	}
