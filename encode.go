@@ -2,7 +2,6 @@ package packet
 
 import (
 	"bytes"
-	"encoding/binary"
 	"fmt"
 	"reflect"
 )
@@ -30,8 +29,8 @@ func (e *encoder) encode(v reflect.Value, f *field) error {
 	case reflect.Ptr:
 		pv := v.Elem()
 		return e.encode(pv, f)
-	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		return e._primitives(v, f)
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		return e._primitives(v, v, f)
 	case reflect.String:
 		_, err := e.Write([]byte(v.String()))
 		return err
@@ -46,10 +45,20 @@ func (e *encoder) encode(v reflect.Value, f *field) error {
 				}
 			}
 		}
+	case reflect.Interface:
+		return e.encode(v.Elem(), nil)
 	default:
 		panic(fmt.Errorf("not handled type %v", v.Type()))
 	}
 	return nil
+}
+
+func (e *encoder) fieldEncode(parent reflect.Value, v reflect.Value, f *field) error {
+	switch v.Kind() {
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		return e._primitives(parent, v, f)
+	}
+	return e.encode(v, f)
 }
 
 func (e *encoder) writeBits() error {
@@ -90,45 +99,41 @@ func (e *encoder) encodeBitFieldValue(v reflect.Value, u unit, length uint64) er
 	return nil
 }
 
-func (e *encoder) _primitives(v reflect.Value, f *field) error {
+func (e *encoder) _primitives(parent reflect.Value, v reflect.Value, f *field) error {
+	length := uint64(0)
 	if f != nil {
 		switch {
 		case f.length != nil:
 			return e.encodeBitFieldValue(v, f.length.unit, f.length.length)
+		case f.f.lengthfor:
+			if m, ok := parent.Interface().(LengthFor); ok {
+				length = m.LengthFor(f.Name)
+				goto encode
+			}
 		}
 	}
-	length := int(0)
 	switch v.Kind() {
 	case reflect.Uint8:
-		return e.WriteByte(v.Interface().(uint8))
+		length = 1
 	case reflect.Uint16:
 		length = 2
-		binary.BigEndian.PutUint16(e.scratch[0:length], v.Interface().(uint16))
 	case reflect.Uint32:
 		length = 4
-		binary.BigEndian.PutUint32(e.scratch[0:length], v.Interface().(uint32))
 	case reflect.Uint:
 		length = 4
-		binary.BigEndian.PutUint32(e.scratch[0:length], uint32(v.Interface().(uint)))
 	case reflect.Uint64:
 		length = 8
-		binary.BigEndian.PutUint64(e.scratch[0:length], v.Interface().(uint64))
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		length = binary.PutVarint(e.scratch[0:], v.Int())
+		panic(fmt.Errorf("Int packet encoding not supported."))
 	}
-
-	if l, err := e.Write(e.scratch[0:length]); err != nil {
-		return err
-	} else if l != length {
-		return fmt.Errorf("write unexpected bytes wants %d, got %d", length, l)
-	}
-	return nil
+encode:
+	return e.encodeBitFieldValue(v, _byte, length)
 }
 
 func (e *encoder) _struct(v reflect.Value) error {
 	vf := getStructFields(v)
 	for i := 0; i < len(*vf); i++ {
-		if err := e.encode(v.Field(i), (*vf)[i]); err != nil {
+		if err := e.fieldEncode(v, v.Field(i), (*vf)[i]); err != nil {
 			return err
 		}
 	}
