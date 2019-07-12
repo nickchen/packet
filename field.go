@@ -7,12 +7,13 @@ import (
 	"strings"
 )
 
-type ValueFields []*field
+// ValueFields is an array of fields
+type valueFields []*field
 
-var _structFields map[string]*ValueFields
+var _structFields map[string]*valueFields
 
 func init() {
-	_structFields = make(map[string]*ValueFields)
+	_structFields = make(map[string]*valueFields)
 }
 
 const tagName = "packet"
@@ -65,14 +66,14 @@ type field struct {
 	}
 }
 
-func getStructFields(v reflect.Value) *ValueFields {
+func getStructFields(v reflect.Value) *valueFields {
 	if v.Kind() != reflect.Struct {
 		panic(fmt.Errorf("%s not a struct", v.Kind()))
 	}
 	vf, ok := _structFields[v.Type().Name()]
 
 	if !ok {
-		vf = &ValueFields{}
+		vf = &valueFields{}
 		t := v.Type()
 		for i := 0; i < t.NumField(); i++ {
 			f := t.Field(i)

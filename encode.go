@@ -89,6 +89,7 @@ func (e *encoder) encodeBitFieldValue(v reflect.Value, u unit, length uint64) er
 	}
 	return nil
 }
+
 func (e *encoder) _primitives(v reflect.Value, f *field) error {
 	if f != nil {
 		switch {

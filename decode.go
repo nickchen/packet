@@ -59,21 +59,21 @@ func (d *decoder) _ptr(c *cursor, v reflect.Value) error {
 		return d._struct(c, v)
 	case reflect.Slice:
 		// grow initial slice
-		d.growSlice(v, 0, 0)
-		fallthrough
-	case reflect.Array:
-		for j := 0; j <= v.Cap() && c.current < c.end; j++ {
-			if v.Kind() == reflect.Slice {
-				if j >= v.Cap() {
-					// Set the len
-					d.growSlice(v, j, 0)
-				}
-				if j >= v.Len() {
-					v.SetLen(j + 1)
-				}
-			} else if j >= v.Cap() {
-				break
+		for j := 0; c.current < c.end; j++ {
+			if j >= v.Cap() {
+				// Set the len
+				d.growSlice(v, j, 0)
 			}
+			if j >= v.Len() {
+				v.SetLen(j + 1)
+			}
+			fv := v.Index(j)
+			if err := d.setValue(c, reflect.StructField{}, reflect.Value{}, fv); err != nil {
+				return err
+			}
+		}
+	case reflect.Array:
+		for j := 0; j < v.Cap() && c.current < c.end; j++ {
 			fv := v.Index(j)
 			if err := d.setValue(c, reflect.StructField{}, reflect.Value{}, fv); err != nil {
 				return err
@@ -155,6 +155,23 @@ func (d *decoder) setUintValue(c *cursor, f reflect.StructField, parent reflect.
 	return nil
 }
 
+func (d *decoder) nextInstance(parent reflect.Value, f reflect.StructField) interface{} {
+	// alt implementation, increased allocation and worst performance
+	// if m := parent.MethodByName("InstanceFor"); m.IsValid() {
+	// 	v := parent.FieldByName(f.Name)
+	// 	// call the function UnmarshalBody, which should return an object to be set for Body as protocol dictates
+	// 	if mr := m.Call([]reflect.Value{reflect.ValueOf(v.String())}); len(mr) == 1 {
+	// 		// the return from call is an array, we only expect one element
+	// 		return mr[0].Elem()
+	// 	}
+	// }
+	// return reflect.Value{}
+	if m, ok := parent.Interface().(InstanceFor); ok {
+		return m.InstanceFor(f.Name)
+	}
+	return nil
+}
+
 func (d *decoder) setValue(c *cursor, f reflect.StructField, parent reflect.Value, v reflect.Value) error {
 	if c.current >= c.end && v.Kind() != reflect.Interface {
 		return nil
@@ -174,23 +191,23 @@ func (d *decoder) setValue(c *cursor, f reflect.StructField, parent reflect.Valu
 		c.current += length
 	case reflect.Slice:
 		// grow initial capacity
-		d.growSlice(v, 0, 0)
-		fallthrough
+		for j := 0; c.current < c.end; j++ {
+			if j >= v.Cap() {
+				// Set the len
+				d.growSlice(v, j, 0)
+			}
+			if j >= v.Len() {
+				v.SetLen(j + 1)
+			}
+			fv := v.Index(j)
+			if err := d.setValue(c, f, parent, fv); err != nil {
+				return err
+			}
+		}
 	case reflect.Array:
 		// Len for number of existing elements
 		// Cap for how big slice can grow
-		for j := 0; j <= v.Cap() && c.current < c.end; j++ {
-			if v.Kind() == reflect.Slice {
-				if j >= v.Cap() {
-					// Set the len
-					d.growSlice(v, j, 0)
-				}
-				if j >= v.Len() {
-					v.SetLen(j + 1)
-				}
-			} else if j >= v.Cap() {
-				break
-			}
+		for j := 0; j < v.Cap() && c.current < c.end; j++ {
 			fv := v.Index(j)
 			if err := d.setValue(c, f, parent, fv); err != nil {
 				return err
@@ -204,17 +221,13 @@ func (d *decoder) setValue(c *cursor, f reflect.StructField, parent reflect.Valu
 		v.Set(pv)
 		return d.setValue(c, f, parent, pv.Elem())
 	case reflect.Interface:
-		if m, ok := parent.Interface().(InstanceFor); ok {
-			i := m.InstanceFor(f.Name)
-			if i != nil {
-				iv := reflect.ValueOf(i)
-				// set body before the decoding process, so it should be returned along with error if any
-				v.Set(iv)
-				return d.setValue(c, f, parent, iv.Elem())
-			}
-			return nil
+		if i := d.nextInstance(parent, f); i != nil {
+			// set body before the decoding process, so it should be returned along with error if any
+			iv := reflect.ValueOf(i)
+			v.Set(iv)
+			return d.setValue(c, f, parent, iv.Elem())
 		}
-		return fmt.Errorf("no valid InstanceFor returned for %s.%s %v", parent.Type().Name(), f.Name, v)
+		return nil
 	case reflect.Bool:
 		return d.setBitFieldValue(c, f, _bits, 1, parent, v)
 	default:

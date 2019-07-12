@@ -59,6 +59,10 @@ func checkBGP(t *testing.T, want interface{}, packetBytes []byte, MessageType Me
 		assert.Equal(t, bgp.Type, MessageType, "message type not equal")
 		difference := cmp.Diff(want.(*Message), bgp)
 		assert.Empty(t, difference, "diff found")
+
+		b, err := packet.Marshal(want)
+		assert.NoError(t, err, "failed to encode")
+		assert.Equal(t, packetBytes, b, "same data")
 	case *[]Message:
 		bgps := &[]Message{}
 		err := packet.Unmarshal(packetBytes, bgps)
