@@ -25,6 +25,9 @@ func Marshal(v interface{}) ([]byte, error) {
 }
 
 func (e *encoder) encode(v reflect.Value, f *field) error {
+	if !v.IsValid() {
+		return nil
+	}
 	switch v.Kind() {
 	case reflect.Ptr:
 		pv := v.Elem()

@@ -59,10 +59,6 @@ func checkBGP(t *testing.T, want interface{}, packetBytes []byte, MessageType Me
 		assert.Equal(t, bgp.Type, MessageType, "message type not equal")
 		difference := cmp.Diff(want.(*Message), bgp)
 		assert.Empty(t, difference, "diff found")
-
-		b, err := packet.Marshal(want)
-		assert.NoError(t, err, "failed to encode")
-		assert.Equal(t, packetBytes, b, "same data")
 	case *[]Message:
 		bgps := &[]Message{}
 		err := packet.Unmarshal(packetBytes, bgps)
@@ -73,29 +69,192 @@ func checkBGP(t *testing.T, want interface{}, packetBytes []byte, MessageType Me
 		fmt.Printf("BGP: %+v\n", bgps)
 		difference := cmp.Diff(want.(*[]Message), bgps)
 		assert.Empty(t, difference, "diff found")
+
 	default:
 		assert.Fail(t, "unknown type")
 	}
+
+	b, err := packet.Marshal(want)
+	assert.NoError(t, err, "failed to encode")
+	assert.Equal(t, packetBytes, b, "same data")
 }
 
+var keepAliveMessage = &Message{
+	Marker: _16ByteMaker,
+	Type:   _Keepalive,
+	Length: 19,
+	Body:   &Keepalive{},
+}
 func TestBGPKeepaliveMessage(t *testing.T) {
-	want := &Message{
+	checkBGP(t, keepAliveMessage, testBGPKeepaliveMessage, _Keepalive)
+}
+
+func BenchmarkBGPKeepaliveMessage(b *testing.B) {
+	for n := 0; n < b.N; n++ {
+		_, _ = packet.Marshal(keepAliveMessage)
+	}
+}
+
+var updateMessage = &Message{
+	Marker: _16ByteMaker,
+	Type:   _Update,
+	Length: 61,
+	Body: &Update{
+		WithdrawnLength:     0,
+		PathAttributeLength: 18,
+		PathAttributes: []PathAttribute{
+			PathAttribute{
+				Flags:  Transitive,
+				Code:   Origin,
+				Length: 1,
+				Data:   &OriginAttribute{Origin: IBGP},
+			},
+			PathAttribute{
+				Flags:  Transitive,
+				Code:   AsPath,
+				Length: 4,
+				Data: &[]AsPathAttribute{
+					AsPathAttribute{Type: AsSequence, Count: 1, List: []ASN{ASN(65000)}},
+				},
+			},
+			PathAttribute{
+				Flags:  Transitive,
+				Code:   Nexthop,
+				Length: 4,
+				Data:   &NexthopAttribute{Nexthop: []byte{0xc0, 0xa8, 0x56, 0x64}},
+			},
+		},
+		NLRI: []PrefixSpec{
+			PrefixSpec{
+				Length: 24,
+				Prefix: []byte{0x0a, 0x01, 0x03},
+			},
+			PrefixSpec{
+				Length: 24,
+				Prefix: []byte{0x0a, 0x01, 0x06},
+			},
+			PrefixSpec{
+				Length: 24,
+				Prefix: []byte{0x0a, 0x01, 0x07},
+			},
+			PrefixSpec{
+				Length: 24,
+				Prefix: []byte{0x0a, 0x01, 0x04},
+			},
+			PrefixSpec{
+				Length: 24,
+				Prefix: []byte{0x0a, 0x01, 0x05},
+			},
+		},
+	},
+}
+func TestBGPUpdateMessage(t *testing.T) {
+	checkBGP(t, updateMessage, testBGPUpdateMessage, _Update)
+}
+
+func BenchmarkBGPUpdateMessage(b *testing.B) {
+	for n := 0; n < b.N; n++ {
+		_, _ = packet.Marshal(updateMessage)
+	}
+}
+
+var comboMessage = &[]Message{
+	Message{
 		Marker: _16ByteMaker,
 		Type:   _Keepalive,
 		Length: 19,
 		Body:   &Keepalive{},
-	}
-	checkBGP(t, want, testBGPKeepaliveMessage, _Keepalive)
-}
-
-func TestBGPUpdateMessage(t *testing.T) {
-	want := &Message{
+	},
+	Message{
 		Marker: _16ByteMaker,
 		Type:   _Update,
-		Length: 61,
+		Length: 98,
 		Body: &Update{
 			WithdrawnLength:     0,
-			PathAttributeLength: 18,
+			PathAttributeLength: 72,
+			PathAttributes: []PathAttribute{
+				PathAttribute{
+					Flags:  Transitive,
+					Code:   Origin,
+					Length: 1,
+					Data:   &OriginAttribute{Origin: INCOMPLETE},
+				},
+				PathAttribute{
+					Flags:  Transitive,
+					Code:   AsPath,
+					Length: 10,
+					Data: &[]AsPathAttribute{
+						AsPathAttribute{Type: AsSet, Count: 2, List: []ASN{ASN(500), ASN(500)}},
+						AsPathAttribute{Type: AsSequence, Count: 1, List: []ASN{ASN(65211)}},
+					},
+				},
+				PathAttribute{
+					Flags:  Transitive,
+					Code:   Nexthop,
+					Length: 4,
+					Data:   &NexthopAttribute{Nexthop: []byte{0xc0, 0xa8, 0x00, 0x0f}},
+				},
+				PathAttribute{
+					Flags:  Transitive,
+					Code:   LocalPref,
+					Length: 4,
+					Data:   &LocalPrefAttribute{LocalPref: 100},
+				},
+				PathAttribute{
+					Flags:  Transitive,
+					Code:   AtomicAggregate,
+					Length: 0,
+				},
+				PathAttribute{
+					Flags:  Transitive | Optional,
+					Code:   Aggregator,
+					Length: 6,
+					Data:   &AggregatorAttribute{AS: 65210, Origin: []byte{0xc0, 0xa8, 0x00, 0x0a}},
+				},
+				PathAttribute{
+					Flags:  Transitive | Optional,
+					Code:   Community,
+					Length: 12,
+					Data: &[]CommunityAttribute{
+						CommunityAttribute{
+							Attribute: uint32((65215 << 16) | (1)),
+						},
+						CommunityAttribute{
+							Attribute: uint32((790 << 16) | (4)),
+						},
+						CommunityAttribute{
+							Attribute: uint32((340 << 16) | (250)),
+						},
+					},
+				},
+				PathAttribute{
+					Flags:  Optional,
+					Code:   OriginatorID,
+					Length: 4,
+					Data:   &[]byte{0xc0, 0xa8, 0x00, 0x0f},
+				},
+				PathAttribute{
+					Flags:  Optional,
+					Code:   ClusterList,
+					Length: 4,
+					Data:   &[]byte{0xc0, 0xa8, 0x00, 0xfa},
+				},
+			},
+			NLRI: []PrefixSpec{
+				PrefixSpec{
+					Length: 16,
+					Prefix: []byte{0xac, 0x10},
+				},
+			},
+		},
+	},
+	Message{
+		Marker: _16ByteMaker,
+		Type:   _Update,
+		Length: 99,
+		Body: &Update{
+			WithdrawnLength:     0,
+			PathAttributeLength: 72,
 			PathAttributes: []PathAttribute{
 				PathAttribute{
 					Flags:  Transitive,
@@ -106,219 +265,80 @@ func TestBGPUpdateMessage(t *testing.T) {
 				PathAttribute{
 					Flags:  Transitive,
 					Code:   AsPath,
-					Length: 4,
+					Length: 10,
 					Data: &[]AsPathAttribute{
-						AsPathAttribute{Type: AsSequence, Count: 1, List: []ASN{ASN(65000)}},
+						AsPathAttribute{Type: AsSet, Count: 2, List: []ASN{ASN(500), ASN(500)}},
+						AsPathAttribute{Type: AsSequence, Count: 1, List: []ASN{ASN(65211)}},
 					},
 				},
 				PathAttribute{
 					Flags:  Transitive,
 					Code:   Nexthop,
 					Length: 4,
-					Data:   &NexthopAttribute{Nexthop: []byte{0xc0, 0xa8, 0x56, 0x64}},
+					Data:   &NexthopAttribute{Nexthop: []byte{0xc0, 0xa8, 0x00, 0x0f}},
+				},
+				PathAttribute{
+					Flags:  Transitive,
+					Code:   LocalPref,
+					Length: 4,
+					Data:   &LocalPrefAttribute{LocalPref: 100},
+				},
+				PathAttribute{
+					Flags:  Transitive,
+					Code:   AtomicAggregate,
+					Length: 0,
+				},
+				PathAttribute{
+					Flags:  Transitive | Optional,
+					Code:   Aggregator,
+					Length: 6,
+					Data:   &AggregatorAttribute{AS: 65210, Origin: []byte{0xc0, 0xa8, 0x00, 0x0a}},
+				},
+				PathAttribute{
+					Flags:  Transitive | Optional,
+					Code:   Community,
+					Length: 12,
+					Data: &[]CommunityAttribute{
+						CommunityAttribute{
+							Attribute: uint32((65215 << 16) | (1)),
+						},
+						CommunityAttribute{
+							Attribute: uint32((790 << 16) | (4)),
+						},
+						CommunityAttribute{
+							Attribute: uint32((340 << 16) | (250)),
+						},
+					},
+				},
+				PathAttribute{
+					Flags:  Optional,
+					Code:   OriginatorID,
+					Length: 4,
+					Data:   &[]byte{0xc0, 0xa8, 0x00, 0x0f},
+				},
+				PathAttribute{
+					Flags:  Optional,
+					Code:   ClusterList,
+					Length: 4,
+					Data:   &[]byte{0xc0, 0xa8, 0x00, 0xfa},
 				},
 			},
 			NLRI: []PrefixSpec{
 				PrefixSpec{
-					Length: 24,
-					Prefix: []byte{0x0a, 0x01, 0x03},
-				},
-				PrefixSpec{
-					Length: 24,
-					Prefix: []byte{0x0a, 0x01, 0x06},
-				},
-				PrefixSpec{
-					Length: 24,
-					Prefix: []byte{0x0a, 0x01, 0x07},
-				},
-				PrefixSpec{
-					Length: 24,
-					Prefix: []byte{0x0a, 0x01, 0x04},
-				},
-				PrefixSpec{
-					Length: 24,
-					Prefix: []byte{0x0a, 0x01, 0x05},
+					Length: 22,
+					Prefix: []byte{0xc0, 0xa8, 0x04},
 				},
 			},
 		},
-	}
-	checkBGP(t, want, testBGPUpdateMessage, _Update)
+	},
 }
 
 func TestBGPComboPacket(t *testing.T) {
-	wants := &[]Message{
-		Message{
-			Marker: _16ByteMaker,
-			Type:   _Keepalive,
-			Length: 19,
-			Body:   &Keepalive{},
-		},
-		Message{
-			Marker: _16ByteMaker,
-			Type:   _Update,
-			Length: 98,
-			Body: &Update{
-				WithdrawnLength:     0,
-				PathAttributeLength: 72,
-				PathAttributes: []PathAttribute{
-					PathAttribute{
-						Flags:  Transitive,
-						Code:   Origin,
-						Length: 1,
-						Data:   &OriginAttribute{Origin: INCOMPLETE},
-					},
-					PathAttribute{
-						Flags:  Transitive,
-						Code:   AsPath,
-						Length: 10,
-						Data: &[]AsPathAttribute{
-							AsPathAttribute{Type: AsSet, Count: 2, List: []ASN{ASN(500), ASN(500)}},
-							AsPathAttribute{Type: AsSequence, Count: 1, List: []ASN{ASN(65211)}},
-						},
-					},
-					PathAttribute{
-						Flags:  Transitive,
-						Code:   Nexthop,
-						Length: 4,
-						Data:   &NexthopAttribute{Nexthop: []byte{0xc0, 0xa8, 0x00, 0x0f}},
-					},
-					PathAttribute{
-						Flags:  Transitive,
-						Code:   LocalPref,
-						Length: 4,
-						Data:   &LocalPrefAttribute{LocalPref: 100},
-					},
-					PathAttribute{
-						Flags:  Transitive,
-						Code:   AtomicAggregate,
-						Length: 0,
-					},
-					PathAttribute{
-						Flags:  Transitive | Optional,
-						Code:   Aggregator,
-						Length: 6,
-						Data:   &AggregatorAttribute{AS: 65210, Origin: []byte{0xc0, 0xa8, 0x00, 0x0a}},
-					},
-					PathAttribute{
-						Flags:  Transitive | Optional,
-						Code:   Community,
-						Length: 12,
-						Data: &[]CommunityAttribute{
-							CommunityAttribute{
-								Attribute: uint32((65215 << 16) | (1)),
-							},
-							CommunityAttribute{
-								Attribute: uint32((790 << 16) | (4)),
-							},
-							CommunityAttribute{
-								Attribute: uint32((340 << 16) | (250)),
-							},
-						},
-					},
-					PathAttribute{
-						Flags:  Optional,
-						Code:   OriginatorID,
-						Length: 4,
-						Data:   &[]byte{0xc0, 0xa8, 0x00, 0x0f},
-					},
-					PathAttribute{
-						Flags:  Optional,
-						Code:   ClusterList,
-						Length: 4,
-						Data:   &[]byte{0xc0, 0xa8, 0x00, 0xfa},
-					},
-				},
-				NLRI: []PrefixSpec{
-					PrefixSpec{
-						Length: 16,
-						Prefix: []byte{0xac, 0x10},
-					},
-				},
-			},
-		},
-		Message{
-			Marker: _16ByteMaker,
-			Type:   _Update,
-			Length: 99,
-			Body: &Update{
-				WithdrawnLength:     0,
-				PathAttributeLength: 72,
-				PathAttributes: []PathAttribute{
-					PathAttribute{
-						Flags:  Transitive,
-						Code:   Origin,
-						Length: 1,
-						Data:   &OriginAttribute{Origin: IBGP},
-					},
-					PathAttribute{
-						Flags:  Transitive,
-						Code:   AsPath,
-						Length: 10,
-						Data: &[]AsPathAttribute{
-							AsPathAttribute{Type: AsSet, Count: 2, List: []ASN{ASN(500), ASN(500)}},
-							AsPathAttribute{Type: AsSequence, Count: 1, List: []ASN{ASN(65211)}},
-						},
-					},
-					PathAttribute{
-						Flags:  Transitive,
-						Code:   Nexthop,
-						Length: 4,
-						Data:   &NexthopAttribute{Nexthop: []byte{0xc0, 0xa8, 0x00, 0x0f}},
-					},
-					PathAttribute{
-						Flags:  Transitive,
-						Code:   LocalPref,
-						Length: 4,
-						Data:   &LocalPrefAttribute{LocalPref: 100},
-					},
-					PathAttribute{
-						Flags:  Transitive,
-						Code:   AtomicAggregate,
-						Length: 0,
-					},
-					PathAttribute{
-						Flags:  Transitive | Optional,
-						Code:   Aggregator,
-						Length: 6,
-						Data:   &AggregatorAttribute{AS: 65210, Origin: []byte{0xc0, 0xa8, 0x00, 0x0a}},
-					},
-					PathAttribute{
-						Flags:  Transitive | Optional,
-						Code:   Community,
-						Length: 12,
-						Data: &[]CommunityAttribute{
-							CommunityAttribute{
-								Attribute: uint32((65215 << 16) | (1)),
-							},
-							CommunityAttribute{
-								Attribute: uint32((790 << 16) | (4)),
-							},
-							CommunityAttribute{
-								Attribute: uint32((340 << 16) | (250)),
-							},
-						},
-					},
-					PathAttribute{
-						Flags:  Optional,
-						Code:   OriginatorID,
-						Length: 4,
-						Data:   &[]byte{0xc0, 0xa8, 0x00, 0x0f},
-					},
-					PathAttribute{
-						Flags:  Optional,
-						Code:   ClusterList,
-						Length: 4,
-						Data:   &[]byte{0xc0, 0xa8, 0x00, 0xfa},
-					},
-				},
-				NLRI: []PrefixSpec{
-					PrefixSpec{
-						Length: 22,
-						Prefix: []byte{0xc0, 0xa8, 0x04},
-					},
-				},
-			},
-		},
+	checkBGP(t, comboMessage, testBGPComboMessage, _Update)
+}
+
+func BenchmarkComboMessage(b *testing.B) {
+	for n := 0; n < b.N; n++ {
+		_, _ = packet.Marshal(comboMessage)
 	}
-	checkBGP(t, wants, testBGPComboMessage, _Update)
 }
