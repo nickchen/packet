@@ -248,9 +248,17 @@ func (f AttributeFlag) String() string {
 	return strings.Join(s, "|")
 }
 
+type IPAddr net.IP
+
+// MarshalPACKET return bytes
+func (ip IPAddr) MarshalPACKET() ([]byte, error) {
+	fmt.Printf("IPV4\n")
+	return net.IP(ip).To4(), nil
+}
+
 // NexthopAttribute containers a nexthop
 type NexthopAttribute struct {
-	Nexthop []byte
+	Nexthop IPAddr
 }
 
 // LocalPrefAttribute local pref BGP attribute
