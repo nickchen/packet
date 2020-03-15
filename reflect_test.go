@@ -142,13 +142,6 @@ func BenchmarkReflectUnmarshalObjWithReader(b *testing.B) {
 	}
 }
 
-type ObjReflectWithBytesSlice struct {
-	A byte
-	B byte
-	C byte
-	D []byte
-}
-
 func TestReflectUnmarshalObjWithBytesSlice(test *testing.T) {
 
 	o := &ObjWithBytesSlice{}

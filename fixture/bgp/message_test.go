@@ -2,6 +2,7 @@ package bgp
 
 import (
 	"fmt"
+	"net"
 	"testing"
 
 	"github.com/nickchen/packet"
@@ -48,7 +49,7 @@ func printDetailErrorInformation(err error) {
 }
 
 func checkBGP(t *testing.T, want interface{}, packetBytes []byte, MessageType MessageType) {
-	switch want.(type) {
+	switch m := want.(type) {
 	case *Message:
 		bgp := &Message{}
 		err := packet.Unmarshal(packetBytes, bgp)
@@ -57,7 +58,7 @@ func checkBGP(t *testing.T, want interface{}, packetBytes []byte, MessageType Me
 			printDetailErrorInformation(err)
 		}
 		assert.Equal(t, bgp.Type, MessageType, "message type not equal")
-		difference := cmp.Diff(want.(*Message), bgp)
+		difference := cmp.Diff(m, bgp)
 		assert.Empty(t, difference, "diff found")
 	case *[]Message:
 		bgps := &[]Message{}
@@ -67,7 +68,7 @@ func checkBGP(t *testing.T, want interface{}, packetBytes []byte, MessageType Me
 			printDetailErrorInformation(err)
 		}
 		fmt.Printf("BGP: %+v\n", bgps)
-		difference := cmp.Diff(want.(*[]Message), bgps)
+		difference := cmp.Diff(m, bgps)
 		assert.Empty(t, difference, "diff found")
 
 	default:
@@ -85,6 +86,7 @@ var keepAliveMessage = &Message{
 	Length: 19,
 	Body:   &Keepalive{},
 }
+
 func TestBGPKeepaliveMessage(t *testing.T) {
 	checkBGP(t, keepAliveMessage, testBGPKeepaliveMessage, _Keepalive)
 }
@@ -121,7 +123,7 @@ var updateMessage = &Message{
 				Flags:  Transitive,
 				Code:   Nexthop,
 				Length: 4,
-				Data:   &NexthopAttribute{Nexthop: []byte{0xc0, 0xa8, 0x56, 0x64}},
+				Data:   &NexthopAttribute{Nexthop: IPAddr(net.ParseIP("192.168.86.100").To4())},
 			},
 		},
 		NLRI: []PrefixSpec{
@@ -148,6 +150,7 @@ var updateMessage = &Message{
 		},
 	},
 }
+
 func TestBGPUpdateMessage(t *testing.T) {
 	checkBGP(t, updateMessage, testBGPUpdateMessage, _Update)
 }

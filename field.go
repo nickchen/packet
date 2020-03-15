@@ -50,10 +50,6 @@ type when struct {
 	value     uint64
 }
 
-type restFor struct {
-	field string
-}
-
 type field struct {
 	reflect.StructField
 	length     *length
@@ -88,19 +84,6 @@ func newField(_f reflect.StructField) *field {
 	f := &field{StructField: _f}
 	f.populateTag()
 	return f
-}
-
-func (w *when) eval(rv reflect.Value) bool {
-	if f := rv.FieldByName(w.field); f.IsValid() {
-		v := f.Uint()
-		switch w.condition {
-		case "gt":
-			return w.value > v
-		default:
-			panic(fmt.Errorf("not handling condition (%s)", w.condition))
-		}
-	}
-	return false
 }
 
 func (f *field) populateTag() {

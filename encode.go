@@ -33,6 +33,12 @@ func (e *encoder) encode(v reflect.Value, f *field) error {
 	if !v.IsValid() {
 		return nil
 	}
+	if m, ok := v.Interface().(MarshalPACKET); ok {
+		if b, err := m.MarshalPACKET(); err == nil {
+			_, err = e.Write(b)
+			return err
+		}
+	}
 	switch v.Kind() {
 	case reflect.Ptr:
 		pv := v.Elem()
@@ -139,12 +145,6 @@ encode:
 }
 
 func (e *encoder) _struct(v reflect.Value) error {
-	if m, ok := v.Interface().(MarshalPACKET); ok {
-		if b, err := m.MarshalPACKET(); err == nil {
-			_, err = e.Write(b)
-			return err
-		}
-	}
 	vf := getStructFields(v)
 	for i := 0; i < len(*vf); i++ {
 		if err := e.fieldEncode(v, v.Field(i), (*vf)[i]); err != nil {

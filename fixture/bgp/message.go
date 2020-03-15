@@ -248,17 +248,28 @@ func (f AttributeFlag) String() string {
 	return strings.Join(s, "|")
 }
 
+// IPAddr custome marshaler
 type IPAddr net.IP
 
 // MarshalPACKET return bytes
 func (ip IPAddr) MarshalPACKET() ([]byte, error) {
-	fmt.Printf("IPV4\n")
 	return net.IP(ip).To4(), nil
+}
+
+// UnmarshalPACKET unmarshal IPAddr from bytes
+func (ip *IPAddr) UnmarshalPACKET(b []byte) error {
+	*ip = IPAddr(b)
+	return nil
 }
 
 // NexthopAttribute containers a nexthop
 type NexthopAttribute struct {
-	Nexthop IPAddr
+	Nexthop IPAddr `packet:"lengthfor"`
+}
+
+// LengthFor implementation of the LengthFor interface, which returns length in bytes for the provided field
+func (NexthopAttribute) LengthFor(fieldname string) uint64 {
+	return uint64(4)
 }
 
 // LocalPrefAttribute local pref BGP attribute

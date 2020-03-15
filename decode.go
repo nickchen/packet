@@ -35,6 +35,11 @@ type LengthFor interface {
 	LengthFor(fieldname string) uint64
 }
 
+// UnmarshalPACKET interface for custome unmarshaller
+type UnmarshalPACKET interface {
+	UnmarshalPACKET(b []byte) error
+}
+
 // Unmarshal parson the packet data and stores the result in value pointed by v.
 // If v is nil or not a pointer, Unmarshal returns an InvalidUnmarshalError.
 func Unmarshal(data []byte, v interface{}) error {
@@ -176,6 +181,15 @@ func (d *decoder) setValue(c *cursor, f reflect.StructField, parent reflect.Valu
 	if c.current >= c.end && v.Kind() != reflect.Interface {
 		return nil
 	}
+	if v.CanInterface() {
+		pv := v.Addr()
+		if m, ok := pv.Interface().(UnmarshalPACKET); ok {
+			err := m.UnmarshalPACKET(d.data[c.current:c.end])
+			v.Set(pv.Elem())
+			c.current = c.end
+			return err
+		}
+	}
 	switch v.Kind() {
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
 		return d.setUintValue(c, f, parent, v)
@@ -285,6 +299,7 @@ func (d *decoder) setBitFieldValue(c *cursor, f reflect.StructField, u unit, len
 	return nil
 }
 
+// use a cursor to limit the byte being read during recursive parsing
 var _cursorPool = sync.Pool{
 	New: func() interface{} {
 		// The Pool's New function should generally only return pointer
